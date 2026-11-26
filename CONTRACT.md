@@ -198,7 +198,7 @@ type Source = {
 |---|---|---|---|
 | GET | `/api/settings/model` | — | `{global:{provider,model,thinking}, roles:[{role, settings}], providers:[Provider]}`（**不含**模型清单，只给 `model_count`） |
 | GET | `/api/settings/models` | `?provider=deepseek` | `{provider, models:[{id,name}]}`；未知 provider → 422 |
-| PUT | `/api/settings/model` | `{provider, model, role?}` | `{ok, role, provider, model}`；模型不在目录里 → 422 |
+| PUT | `/api/settings/model` | `{provider, model, role?}` | `{ok, role, provider, model}`；模型不在目录里 → 422；**`role` 且 provider/model 为空 = 取消该角色的钉死、回到全局**，返回 `{…, follows_global:true}` |
 | GET | `/api/settings/keys` | — | `{path, keys:[{name,label,configured,source,hint}]}` |
 | PUT | `/api/settings/keys/{name}` | `{value}` | `{ok, name, hint}`；名字不在白名单或值太短 → 422 |
 | DELETE | `/api/settings/keys/{name}` | — | `{ok, name}` |

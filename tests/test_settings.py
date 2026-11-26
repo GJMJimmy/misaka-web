@@ -137,8 +137,34 @@ def test_model_catalog_lists_providers_and_models(client, auth):
     assert any(item["id"] for item in models["models"])
 
 
+def test_a_provider_without_models_returns_an_empty_list(client, auth):
+    body = client.get("/api/settings/model", headers=auth).json()
+    empty = next((item["id"] for item in body["providers"] if item["model_count"] == 0), None)
+    if empty is None:
+        pytest.skip("every provider in this catalog carries models")
+    response = client.get("/api/settings/models", params={"provider": empty}, headers=auth)
+    assert response.status_code == 200
+    assert response.json()["models"] == []
+
+
 def test_unknown_provider_models_is_422(client, auth):
     assert client.get("/api/settings/models", params={"provider": "nope"}, headers=auth).status_code == 422
+
+
+def test_an_empty_choice_makes_a_role_follow_the_global_default(client, auth, home):
+    role_dir = home / "profiles" / "last_order"
+    role_dir.mkdir(parents=True, exist_ok=True)
+    (role_dir / "settings.json").write_text(
+        json.dumps({"defaultProvider": "deepseek", "defaultModel": "deepseek-flash"}), encoding="utf-8")
+
+    cleared = client.put("/api/settings/model", json={"provider": "", "model": "", "role": "last-order"}, headers=auth)
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["follows_global"] is True
+    settings = json.loads((role_dir / "settings.json").read_text(encoding="utf-8"))
+    assert "defaultProvider" not in settings and "defaultModel" not in settings
+
+    # the global default cannot be cleared the same way: it needs a real choice
+    assert client.put("/api/settings/model", json={"provider": "", "model": ""}, headers=auth).status_code == 422
 
 
 def test_an_unknown_model_is_refused(client, auth):

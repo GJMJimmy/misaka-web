@@ -143,7 +143,10 @@ async def models_of(provider: str) -> dict[str, Any]:
     runtime = await _runtime()
     known = [model for model in runtime.getModels(provider)]
     if not known:
-        raise SettingsError(f"Unknown provider: {provider}")
+        # A provider this install knows but carries no models is not an error: the UI shows an
+        # empty list. Only a name nobody knows is refused.
+        if not any(item.id == provider for item in runtime.getProviders()):
+            raise SettingsError(f"Unknown provider: {provider}")
     return {
         "provider": provider,
         "models": [{"id": model.id, "name": getattr(model, "name", None) or model.id} for model in known],
@@ -153,6 +156,16 @@ async def models_of(provider: str) -> dict[str, Any]:
 async def set_model(provider: str, model: str, *, role: str | None = None) -> dict[str, Any]:
     provider, model = str(provider or "").strip(), str(model or "").strip()
     if not provider or not model:
+        # An empty choice for a role means "follow the global default": drop her pin.
+        if role:
+            target = _role_dir(role)
+            settings = _role_settings(target)
+            settings.pop("defaultProvider", None)
+            settings.pop("defaultModel", None)
+            path = Path(target) / "settings.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            return {"ok": True, "role": role, "provider": None, "model": None, "follows_global": True}
         raise SettingsError("Both provider and model are required.")
     runtime = await _runtime()
     known = {item.id for item in runtime.getModels(provider)}
