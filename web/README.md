@@ -39,8 +39,10 @@ web/
 ## 本机工具链（Windows，node 不在 PATH）
 
 ```sh
-export PATH="/c/Users/GJMJi/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin:$PATH"
-PNPM="/c/Users/GJMJi/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/pnpm/bin/pnpm.mjs"
+# 用你本机的 node/pnpm（macOS/Linux 装在 PATH 里就不用这两行）
+export PATH="/path/to/node/bin:$PATH"
+PNPM="/path/to/pnpm/bin/pnpm.mjs"
+# 例：DSH 自带工具链在 ~/.dsh/dsh-runtimes/<runtime>/dependencies/{node/bin,pnpm/bin/pnpm.mjs}
 cd misaka-web/web
 
 node "$PNPM" install            # 首次
