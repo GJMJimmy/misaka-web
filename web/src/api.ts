@@ -1,5 +1,5 @@
 import { API_BASE, apiUrl } from "./env";
-import type { Session, Snapshot } from "./types";
+import type { LimitChanges, NodeDetail, RunDetail, RunFile, RunSummary, Session, Snapshot } from "./types";
 
 const TOKEN_KEY = "misaka.web.token";
 
@@ -19,6 +19,15 @@ export function describeError(err: unknown): string {
   if (err instanceof ApiError) return `${err.message}（${err.code}）`;
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/** 503 board_unavailable：环境里没装 MISAKA 或还没有看板。 */
+export function isBoardUnavailable(err: unknown): boolean {
+  return err instanceof ApiError && err.code === "board_unavailable";
+}
+
+export function isUnauthorized(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401;
 }
 
 export function readToken(): string | null {
@@ -88,6 +97,8 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
 
 const jsonBody = (value: unknown): string => JSON.stringify(value);
 
+/* ------------------------------------------------------------------ M0 会话面 */
+
 /** POST /api/login —— 换 cookie（并保留 token 供 Authorization 头使用）。 */
 export async function login(token: string): Promise<void> {
   await requestJson<{ ok: boolean }>("/api/login", {
@@ -155,4 +166,74 @@ export function cursorToParam(cursor: unknown): string | null {
 export function eventsUrl(id: string, since: string | null): string {
   const base = apiUrl(`/api/sessions/${encodeURIComponent(id)}/events`);
   return since === null ? base : `${base}?since=${encodeURIComponent(since)}`;
+}
+
+/* ------------------------------------------------------------------ M1 研究面 */
+
+/** GET /api/runs —— 503 board_unavailable 会抛 ApiError(code="board_unavailable")。 */
+export async function listRuns(): Promise<RunSummary[]> {
+  const body = await requestJson<{ runs?: RunSummary[] }>("/api/runs");
+  return Array.isArray(body?.runs) ? body.runs : [];
+}
+
+/** GET /api/runs/{run_id} */
+export async function getRun(runId: string): Promise<RunDetail> {
+  return requestJson<RunDetail>(`/api/runs/${encodeURIComponent(runId)}`);
+}
+
+/** GET /api/runs/{run_id}/nodes/{node_id} */
+export async function getRunNode(runId: string, nodeId: string): Promise<NodeDetail> {
+  return requestJson<NodeDetail>(
+    `/api/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}`,
+  );
+}
+
+/** GET /api/runs/{run_id}/nodes/{node_id}/file?name=… —— 越界由服务端 422。 */
+export async function getRunFile(runId: string, nodeId: string, name: string): Promise<RunFile> {
+  return requestJson<RunFile>(
+    `/api/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/file?name=${encodeURIComponent(name)}`,
+  );
+}
+
+/** POST /api/runs/{run_id}/tell —— 审批就是对话：发一句话给节点的 Last Order。 */
+export async function tellRun(
+  runId: string,
+  text: string,
+  nodeId?: string,
+): Promise<{ ok: boolean; node_id: string; session_id: string }> {
+  return requestJson<{ ok: boolean; node_id: string; session_id: string }>(
+    `/api/runs/${encodeURIComponent(runId)}/tell`,
+    { method: "POST", body: jsonBody(nodeId ? { text, node_id: nodeId } : { text }) },
+  );
+}
+
+/** POST /api/runs/{run_id}/stop */
+export async function stopRun(runId: string): Promise<{ ok: boolean; status: string }> {
+  return requestJson<{ ok: boolean; status: string }>(`/api/runs/${encodeURIComponent(runId)}/stop`, {
+    method: "POST",
+  });
+}
+
+/** POST /api/runs/{run_id}/limits —— 只允许四个整数键，回读 after。 */
+export async function changeRunLimits(
+  runId: string,
+  changes: LimitChanges,
+): Promise<{ ok: boolean; before: Record<string, unknown>; after: Record<string, unknown> }> {
+  return requestJson<{ ok: boolean; before: Record<string, unknown>; after: Record<string, unknown> }>(
+    `/api/runs/${encodeURIComponent(runId)}/limits`,
+    { method: "POST", body: jsonBody({ changes }) },
+  );
+}
+
+/**
+ * 仅 VITE_MOCK=1 使用：切换研究面的演示状态（正常 / 空态 / 503）。
+ * 真实后端没有这个端点，所以在 MOCK=false 的构建里永远不会被调用。
+ */
+export async function setMockResearchMode(
+  mode: "normal" | "empty" | "board_unavailable",
+): Promise<void> {
+  await requestJson<{ ok: boolean }>("/api/__mock/research", {
+    method: "POST",
+    body: jsonBody({ mode }),
+  });
 }

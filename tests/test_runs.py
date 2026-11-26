@@ -18,6 +18,9 @@ def test_run_detail_exposes_nodes_and_limits(client, board, auth):
     body = client.get(f"/api/runs/{board['run']['id']}", headers=auth).json()
     assert [node["id"] for node in body["nodes"]] == [board["node"]["id"], board["child"]["id"]]
     assert [node["depth"] for node in body["nodes"]] == [0, 1]
+    # RunDetail is RunSummary plus detail: the counts must survive, or the phone UI renders empty chips
+    assert body["node_count"] == 2
+    assert body["awaiting_approval"] == 0
     assert body["nodes"][0]["listening"] is False
     assert body["limits"]["max_nodes"] >= 1
     assert [item["kind"] for item in body["products"]] == ["question"]

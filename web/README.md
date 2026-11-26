@@ -1,7 +1,7 @@
 # MISAKA WebUI（web/）
 
-移动优先的 MISAKA 会话前端（M0）：Vite + React 19 + TypeScript，**手写 CSS**（CSS 变量做主题，
-无路由库 / 无 Tailwind / 无 UI 组件库）。
+移动优先的 MISAKA WebUI（M0 会话 + M1 研究驾驶舱）：Vite + React 19 + TypeScript，**手写 CSS**
+（CSS 变量做主题，无路由库 / 无 Tailwind / 无 UI 组件库 / 无 markdown 依赖）。
 
 产物 `web/dist` 由 Python 服务静态托管（见 `CONTRACT.md` §2），**服务器不装 node**：
 构建只发生在开发机。
@@ -14,13 +14,19 @@ web/
   public/               manifest.webmanifest、icon.svg（PWA 安装所需）
   src/
     main.tsx            入口：先落主题；VITE_MOCK=1 时装载 mock 后端
-    App.tsx             认证状态机 + 极简 hash 路由（#/sessions、#/session/<id>）
-    api.ts              所有 M0 HTTP 端点（Bearer + cookie 双通道）
+    App.tsx             认证状态机 + 顶层导航（会话 / 研究）+ 极简 hash 路由
+    api.ts              所有 M0 + M1 HTTP 端点（Bearer + cookie 双通道）
     stream.ts           EventSource 订阅 SSE（snapshot / delta / error）
     mock.ts             VITE_MOCK=1 的本地后端（替换 fetch + EventSource）
+    mock-research.ts    研究面假后端（/api/runs*，三条 run / 三层节点 / plan/cards/synthesis 文本）
+    mock-http.ts        mock 共用的 json/error/delay 工具
     merge.ts            delta.entries 合并策略（追加、绝不重排）
+    markdown-parse.ts   Markdown 块级 + 行内解析（纯函数、可在 Node 里自检）
+    markdown.tsx        Markdown → React 元素（**不用 dangerouslySetInnerHTML**）
+    errors.ts           读请求异常归类（503 board_unavailable / 401 / 404 / 422）
     theme.ts / useAppHeight.ts / format.ts
     components/         LoginView / SessionListView / SessionView / MessageList / Composer / Banner / ThemeSwitch
+                        Tabs / ResearchListView / RunDetailView / NodeDetailView / StatusChip / ConfirmLayer / FileViewer
     styles.css          设计视口 390x844、断点 768/1024、深/浅色、safe-area
 ```
 
@@ -105,10 +111,78 @@ SSE 说明：`EventSource` 不能自定义请求头，所以 `/api/sessions/{id}
 | `/error` | 服务端 `event: error` —— 停止接收、不自动重连、「重试」 |
 | 暂停 / 恢复 | 走 `POST .../pause|resume`，暂停期间 mock 挂起流式输出 |
 
-## 已知限制（M0 未做）
+## M1 研究驾驶舱
+
+### 路由（hash，无路由库）
+
+| hash | 页面 |
+|---|---|
+| `#/sessions` | 会话列表（M0，行为未改） |
+| `#/session/<id>` | 会话视图（M0，SSE 流式） |
+| `#/runs` | 研究列表 |
+| `#/run/<id>` | 研究详情（节点树 / limits / 产物） |
+| `#/run/<id>/node/<node>` | 节点详情（tasks / files / syntheses / 同意并开始） |
+
+顶层「会话 / 研究」两个 tab 常驻；详情页左上角返回上一级。
+
+### 端点对照（CONTRACT §3.1 / §3.2）
+
+| 端点 | 前端位置 |
+|---|---|
+| `GET /api/runs` | `api.ts:listRuns` → `ResearchListView`（503 board_unavailable 与空态各一套文案） |
+| `GET /api/runs/{id}` | `api.ts:getRun` → `RunDetailView` |
+| `GET /api/runs/{id}/nodes/{node}` | `api.ts:getRunNode` → `NodeDetailView` |
+| `GET …/file?name=` | `api.ts:getRunFile` → `FileViewer` + `Markdown` |
+| `POST /api/runs/{id}/tell` | `api.ts:tellRun` → `NodeDetailView` 的「同意并开始」 |
+| `POST /api/runs/{id}/stop` | `api.ts:stopRun` → `RunDetailView` 二次确认层 |
+| `POST /api/runs/{id}/limits` | `api.ts:changeRunLimits` → `RunDetailView` 的 limits 编辑器 |
+
+### 写操作的规矩
+
+- **stop / limits / tell 全部先过二次确认层**（`ConfirmLayer`），确认按钮才发请求。
+- **limits 只放四个整数**：`sister_parallel` / `parallel` / `max_followups` / `max_revisions`，
+  客户端先做整数校验再提交；其余 limits 键只读展示。提交成功后**回读** `GET /api/runs/{id}`。
+- **同意并开始 = 审批就是对话**：确认层写明「将把你的话发给这个节点的 Last Order，由她调用
+  `misaka_research_start`」，正文预填「同意，按这份计划开始。」且可编辑；成功后提示
+  「已投递，需回读状态」并自动回读一次，另给「回读状态」按钮手动再读。
+  `listening=false` 时按钮禁用并写明原因；失败时把服务端 422 的 message **原样**显示（里面有 `Listening now: …`）。
+- 所有成功提示都点名「已回读」——投递 ≠ 开始。
+
+### Markdown 渲染（自写，零依赖）
+
+支持：标题（`#`–`######`）、段落、有序/无序列表（含缩进与续行）、引用、代码块（``` 与 `~~~` 两种围栏）、
+行内代码、粗体/斜体/删除线、表格、分隔线。**链接按「文本（url）」显示成纯文本**，不生成 `<a>`。
+全部通过 React 元素产出，代码里没有 `dangerouslySetInnerHTML`，也不引入 marked / markdown-it / dompurify。
+不支持的行内嵌套（粗体里再套斜体）原样输出，不猜。
+
+### 390px 横向滚动
+
+页面本身不横向滚动（`body { overflow-x: hidden }` + 所有面板 `min-width: 0`）：
+代码块 `.md__pre` 与表格 `.md__table-wrap` 各自 `overflow-x: auto`，长 id / 路径 `overflow-wrap: anywhere`。
+
+### mock 演示
+
+`VITE_MOCK=1` 下研究列表右上角有一个 `mock: 正常 / 空态 / 503` 按钮（调 `POST /api/__mock/research`，
+真实后端没有这个端点），用来现场演示空态与 `board_unavailable` 提示。
+
+| 想试的东西 | 怎么做 |
+|---|---|
+| 三条 run / 三层节点 | 进入「研究」→ `r-alpha-2411`（depth 0/1/2，5 个节点） |
+| 待审批徽标 | `r-alpha-2411` 的待审批 1；`r-beta-2411` 的待审批 2 |
+| 节点树 / limits / 产物 | `r-alpha-2411` 详情页 |
+| plan.md / cards / synthesis 多版本 | `r-alpha-2411` → `n-api`（synthesis v1/v2 可切换） |
+| 同意并开始成功 | `n-api`（`listening=true`） |
+| 同意并开始被 422 | `n-md` 或 `n-beta-a`（`listening=false`，按钮禁用且给出原因） |
+| stop / limits 回读 | `r-alpha-2411` 详情页（limits 非法键/非整数/超范围都会 422） |
+
+## 已知限制（M0/M1 未做）
 
 - **没有 Service Worker**：只提供 manifest + standalone 显示，暂不做离线缓存
-  （避免 SW 缓存与静态托管/版本升级互相打架，留到 M1）。
-- 未与真后端联调：只按 `CONTRACT.md` §3 的冻结面实现，真实字段（`cursor` 形状、
-  `entries` 是全量还是增量批）由 `merge.ts` 两种解释都兼容。
+  （避免 SW 缓存与静态托管/版本升级互相打架，留到下一里程碑）。
+- 未与真后端联调：只按 `CONTRACT.md` §3 / §3.1 的冻结面实现。M0 的真实字段歧义（`cursor` 形状、
+  `entries` 是全量还是增量批）由 `merge.ts` 两种解释都兼容；M1 的 `updated_at` 秒/毫秒两种都认
+  （`toMillis`），但服务端真实取值未验证。
+- **研究面不自动轮询**：状态变化靠页面上的「刷新 / 回读状态」按钮触发，避免后台高频拉看板；
+  需要实时化再单独设计。
 - 会话列表不做多会话并行流（进入哪个会话就只订阅哪个）。
+- 真机未验证：390x844 的视觉回归、软键盘弹出行为、深/浅色截图都还没有真机/浏览器证据。

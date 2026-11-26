@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, describeError, listSessions, login, logout, me, writeToken } from "./api";
 import LoginView from "./components/LoginView";
+import NodeDetailView from "./components/NodeDetailView";
+import ResearchListView from "./components/ResearchListView";
+import RunDetailView from "./components/RunDetailView";
 import SessionListView from "./components/SessionListView";
 import SessionView from "./components/SessionView";
+import Tabs, { type TopTab } from "./components/Tabs";
 import ThemeSwitch from "./components/ThemeSwitch";
 import { MOCK } from "./env";
 import { useThemeMode } from "./theme";
@@ -10,15 +14,75 @@ import { useAppHeight } from "./useAppHeight";
 import type { Session } from "./types";
 
 type AuthState = "checking" | "anonymous" | "authenticated";
-type Screen = { kind: "list" } | { kind: "session"; id: string };
+
+type Screen =
+  | { kind: "list" }
+  | { kind: "session"; id: string }
+  | { kind: "runs" }
+  | { kind: "run"; id: string }
+  | { kind: "node"; runId: string; nodeId: string };
 
 function screenFromHash(): Screen {
-  const match = /^#\/session\/([^/]+)$/.exec(window.location.hash);
-  return match ? { kind: "session", id: decodeURIComponent(match[1]) } : { kind: "list" };
+  const hash = window.location.hash;
+  let match = /^#\/session\/([^/]+)$/.exec(hash);
+  if (match) return { kind: "session", id: decodeURIComponent(match[1]) };
+  if (/^#\/runs$/.test(hash)) return { kind: "runs" };
+  match = /^#\/run\/([^/]+)\/node\/([^/]+)$/.exec(hash);
+  if (match) {
+    return { kind: "node", runId: decodeURIComponent(match[1]), nodeId: decodeURIComponent(match[2]) };
+  }
+  match = /^#\/run\/([^/]+)$/.exec(hash);
+  if (match) return { kind: "run", id: decodeURIComponent(match[1]) };
+  return { kind: "list" };
 }
 
 function hashOf(screen: Screen): string {
-  return screen.kind === "session" ? `#/session/${encodeURIComponent(screen.id)}` : "#/sessions";
+  switch (screen.kind) {
+    case "session":
+      return `#/session/${encodeURIComponent(screen.id)}`;
+    case "runs":
+      return "#/runs";
+    case "run":
+      return `#/run/${encodeURIComponent(screen.id)}`;
+    case "node":
+      return `#/run/${encodeURIComponent(screen.runId)}/node/${encodeURIComponent(screen.nodeId)}`;
+    default:
+      return "#/sessions";
+  }
+}
+
+function tabOf(screen: Screen): TopTab {
+  return screen.kind === "runs" || screen.kind === "run" || screen.kind === "node" ? "research" : "sessions";
+}
+
+function backTargetOf(screen: Screen): Screen | null {
+  switch (screen.kind) {
+    case "session":
+      return { kind: "list" };
+    case "run":
+      return { kind: "runs" };
+    case "node":
+      return { kind: "run", id: screen.runId };
+    default:
+      return null;
+  }
+}
+
+function titleOf(screen: Screen, sessions: Session[]): string {
+  switch (screen.kind) {
+    case "session": {
+      const found = sessions.find((item) => item.id === screen.id);
+      return found?.title?.trim() || found?.id || screen.id;
+    }
+    case "runs":
+      return "研究运行";
+    case "run":
+      return "研究运行";
+    case "node":
+      return `节点 ${screen.nodeId}`;
+    default:
+      return "MISAKA WebUI";
+  }
 }
 
 export default function App() {
@@ -122,16 +186,19 @@ export default function App() {
     );
   }
 
-  const active = screen.kind === "session" ? sessions.find((item) => item.id === screen.id) ?? null : null;
-  const title =
-    screen.kind === "session" ? active?.title?.trim() || active?.id || screen.id : "MISAKA WebUI";
+  const back = backTargetOf(screen);
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="topbar__lead">
-          {screen.kind === "session" ? (
-            <button type="button" className="btn btn--icon" onClick={() => navigate({ kind: "list" })} aria-label="返回会话列表">
+          {back ? (
+            <button
+              type="button"
+              className="btn btn--icon"
+              onClick={() => navigate(back)}
+              aria-label="返回上一级"
+            >
               <span aria-hidden="true">←</span>
             </button>
           ) : (
@@ -139,7 +206,7 @@ export default function App() {
               M
             </span>
           )}
-          <h1 className="topbar__title">{title}</h1>
+          <h1 className="topbar__title">{titleOf(screen, sessions)}</h1>
         </div>
         <div className="topbar__trail">
           {MOCK ? <span className="chip chip--mock">MOCK</span> : null}
@@ -147,13 +214,34 @@ export default function App() {
         </div>
       </header>
 
+      <Tabs
+        active={tabOf(screen)}
+        onChange={(tab) => navigate(tab === "sessions" ? { kind: "list" } : { kind: "runs" })}
+      />
+
       <main className="screen">
         {screen.kind === "session" ? (
           <SessionView
             key={screen.id}
             sessionId={screen.id}
-            session={active}
+            session={sessions.find((item) => item.id === screen.id) ?? null}
             onBack={() => navigate({ kind: "list" })}
+            onAuthLost={handleAuthLost}
+          />
+        ) : screen.kind === "runs" ? (
+          <ResearchListView onOpen={(id) => navigate({ kind: "run", id })} onAuthLost={handleAuthLost} />
+        ) : screen.kind === "run" ? (
+          <RunDetailView
+            key={screen.id}
+            runId={screen.id}
+            onOpenNode={(nodeId) => navigate({ kind: "node", runId: screen.id, nodeId })}
+            onAuthLost={handleAuthLost}
+          />
+        ) : screen.kind === "node" ? (
+          <NodeDetailView
+            key={`${screen.runId}/${screen.nodeId}`}
+            runId={screen.runId}
+            nodeId={screen.nodeId}
             onAuthLost={handleAuthLost}
           />
         ) : (

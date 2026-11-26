@@ -1,14 +1,15 @@
 # misaka-web
 
-MISAKA 的移动优先 WebUI：把服务器上的研究会话搬到手机/平板的浏览器里。
+MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬到手机/平板的浏览器里。
 
-**M0 已交付**：token 登录 → 会话列表 → 单会话实时流（SSE 增量）→ 发消息 / 暂停 / 恢复；部署侧有 systemd 单元、Caddy 反代与幂等安装脚本。研究运行面（run/节点/计划/产物）留给 M1。
+**M0（已交付）**：token 登录 → 会话列表 → 单会话实时流（SSE 增量）→ 发消息 / 暂停 / 恢复。
+**M1（已交付）**：研究列表 → 运行详情（节点按 depth 分组、limits、停止）→ 节点页（tasks / files / syntheses）→ 手写 Markdown 渲染 → **审批即对话**（把「同意」发给该节点的 Last Order）。
 
-| 手机登录 | 会话列表 | 流式对话 | 深色 |
-|---|---|---|---|
-| ![登录](docs/screens/mobile-login.png) | ![列表](docs/screens/mobile-sessions.png) | ![流式](docs/screens/mobile-streaming.png) | ![深色](docs/screens/mobile-session-dark.png) |
+| 会话流式 | 研究列表 | 运行详情 | 节点 Markdown | 审批二次确认 |
+|---|---|---|---|---|
+| ![流式](docs/screens/mobile-streaming.png) | ![研究](docs/screens/mobile-runs.png) | ![运行](docs/screens/mobile-run-detail.png) | ![节点](docs/screens/mobile-node-markdown.png) | ![审批](docs/screens/mobile-approve.png) |
 
-（截图来自 `scripts/dev-demo.py` 的真实链路：React ⇄ SSE ⇄ 控制 socket ⇄ 会话属主进程，390×844，DSF 2。）
+（截图全部来自 `scripts/dev-demo.py` 的真实链路：React ⇄ SSE / REST ⇄ 控制 socket + 真看板 ⇄ 会话属主进程，390×844，DSF 2；横向溢出实测为 0。）
 
 ## 它怎么工作
 
@@ -16,32 +17,33 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话搬到手机/平板
 手机/平板 PWA --HTTPS--> Caddy --127.0.0.1:8787--> misaka-web
   |-- 控制 socket（snapshot / input / pause / resume）--> 会话属主进程
   |-- 只读 ~/.misaka（catalog / board.db）
+  |-- 写：仅 stop / limits（上游动词）+ 审计 audit.jsonl
   +-- 包内 static/（构建好的前端，服务器不装 node）
 ```
 
-不做的事：不读写 session 文件、不扮演第二个写者、不在服务器上跑 node。契约见 `CONTRACT.md`。
+三条不可违背的约束：不读写 session 文件；审批不是写看板而是给节点的 Last Order 发一条消息；服务器不装 node。契约见 `CONTRACT.md`。
 
 ## 开发
 
 ```sh
 python -m venv .venv && . .venv/bin/activate
-pip install -e '.[dev]'
-python -m misaka_web token            # 生成 token（0600）
-python -m misaka_web serve            # 127.0.0.1:8787
-pytest -q                             # 服务器与协议测试
+pip install -e '.[dev]'          # 研究面需要 misaka 在同一环境里
+python -m misaka_web token       # 生成 token（0600）
+python -m misaka_web serve       # 127.0.0.1:8787
+pytest -q                        # 45 项：认证/协议/看板/审批/审计
 ```
 
-没有真实 MISAKA 会话也能看界面：
+没有真实 MISAKA 运行也能看完整界面：
 
 ```sh
-python scripts/dev-demo.py            # 假会话属主 + 真服务，可对话、可流式
+python scripts/dev-demo.py       # 假会话属主 + 种一份 demo 看板（2 run / 3 层节点 / plan·cards·synthesis·SOURCES）
 ```
 
 前端：
 
 ```sh
 cd web && pnpm install
-pnpm dev                              # VITE_MOCK=1 时纯前端 mock，无需后端
+pnpm dev                         # VITE_MOCK=1 时纯前端 mock，无需后端
 pnpm exec vite build && ../scripts/sync-web.sh   # 产物进包内 static/
 ```
 
@@ -50,7 +52,7 @@ pnpm exec vite build && ../scripts/sync-web.sh   # 产物进包内 static/
 `docs/ops.md` 是完整运维文档（安装、token 轮换、升级、备份、加固、排障）。最短路径：
 
 ```sh
-./deploy/install.sh
+./deploy/install.sh --with-misaka     # 研究面需要 misaka 在同一个 venv 里
 sudo cp deploy/systemd/misaka-web.service /etc/systemd/system/   # 改 User/Group/HOME/ExecStart
 sudo systemctl enable --now misaka-web
 ```

@@ -1,3 +1,5 @@
+import { delay, errorResponse, jsonResponse } from "./mock-http";
+import { handleResearch } from "./mock-research";
 import type { Delta, Entry, Session, SessionRunState, Snapshot } from "./types";
 
 /**
@@ -35,18 +37,6 @@ const SUBSCRIBERS = new Map<string, Set<MockEventSource>>();
 let sessionCookieAuthed = false;
 
 const nowIso = (): string => new Date().toISOString();
-const delay = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-  });
-}
-
-function errorResponse(status: number, code: string, message: string): Response {
-  return jsonResponse({ error: { code, message } }, status);
-}
 
 function sseResponse(): Response {
   return new Response(null, {
@@ -420,6 +410,12 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (!isAuthed()) {
     return errorResponse(401, "unauthorized", "（mock）未认证，请用任意非空 token 登录。");
+  }
+
+  // M1 研究面（/api/runs*）与 mock 演示开关（/api/__mock/*）交给 mock-research.ts
+  if (path.startsWith("/api/runs") || path.startsWith("/api/__mock/")) {
+    const handled = await handleResearch(path, method, bodyText, url.searchParams);
+    if (handled) return handled;
   }
 
   if (path === "/api/me" && method === "GET") {

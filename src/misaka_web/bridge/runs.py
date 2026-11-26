@@ -131,6 +131,7 @@ def run_detail(run_id: str) -> dict[str, Any]:
     with connect() as con:
         run, modules = _load(con, run_id)
         runs, views = modules["runs"], modules["views"]
+        nodes = _node_rows(con, modules, run)
         products = [
             {"kind": row["kind"], "title": row["title"], "path": row["path"]}
             for row in runs.artifacts(con, run_id, run_level=True)
@@ -147,7 +148,9 @@ def run_detail(run_id: str) -> dict[str, Any]:
             "created_at": run.get("created_at"),
             "updated_at": run.get("updated_at"),
             "last_error": run.get("last_error"),
-            "nodes": _node_rows(con, modules, run),
+            "node_count": len(nodes),
+            "awaiting_approval": sum(1 for node in nodes if node.get("status") == "awaiting_approval"),
+            "nodes": nodes,
             "products": products,
             "dissolving": [node["id"] for node in views.dissolving_nodes(con, run)],
         }
