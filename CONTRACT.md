@@ -123,6 +123,9 @@ type NodeDetail = NodeSummary & {
 };
 ```
 
+> 注意：`NodeDetail` **替换**了继承来的 `syntheses`（`NodeSummary.syntheses` 是数量，`NodeDetail.syntheses` 是版本列表）。
+> TS 里写成 `Omit<NodeSummary, "syntheses"> & { syntheses: Synthesis[] }`；字面交叉类型不可满足。
+
 ### 3.2 审批就是对话（M1 的关键约束）
 
 「同意并开始」不是写看板，而是 `POST /api/runs/{id}/tell` 发一句话给该节点的 Last Order，由她调用 `misaka_research_start`。因此：
