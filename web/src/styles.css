@@ -1998,6 +1998,13 @@ a.btn {
 }
 
 .menu-row__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- 会话气泡里的 markdown：复用 .md 的排版，去掉外层留白 ---------- */
 .msg__md {
   min-width: 0;
@@ -2016,4 +2023,212 @@ a.btn {
 .msg__md .md__table-wrap {
   max-width: 100%;
   overflow-x: auto;
+}
+
+/* ---------- M7 终端（§3.8）：真 PTY + xterm ---------- */
+/* 页面本身不横向滚动（.terminal 裁掉溢出），终端容器吃满可视区，内部滚动交给 xterm。 */
+.terminal {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px max(var(--gutter), env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom))
+    max(var(--gutter), env(safe-area-inset-left));
+  overflow-x: hidden;
+}
+
+.terminal__note {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-sm);
+  background: var(--info-bg);
+  color: var(--info-fg);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  flex: 0 0 auto;
+}
+
+.terminal__setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.terminal__row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.terminal__row--compact {
+  flex: 0 0 auto;
+}
+
+.terminal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 110px;
+}
+
+.terminal__field--wide {
+  flex: 1 1 200px;
+}
+
+.terminal__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-subtle);
+  overflow-wrap: anywhere;
+}
+
+.terminal__field .field__input {
+  width: 100%;
+  min-width: 0;
+}
+
+select.field__input {
+  appearance: none;
+  padding-right: 10px;
+}
+
+.terminal__hint {
+  margin: 0;
+  flex: 1 1 140px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-subtle);
+  overflow-wrap: anywhere;
+}
+
+.terminal__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.terminal__status-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.terminal__dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--fg-subtle);
+}
+
+.terminal__dot--on {
+  background: var(--ok);
+}
+
+.terminal__exit {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-inset);
+  color: var(--fg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.terminal__notice {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  flex: 0 0 auto;
+}
+
+.terminal__error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--error-border);
+  border-radius: var(--radius-sm);
+  background: var(--error-bg);
+  color: var(--error-fg);
+  flex: 0 0 auto;
+}
+
+.terminal__error-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.terminal__error-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.terminal__error-raw {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+
+.terminal__error .btn {
+  background: var(--bg-elevated);
+  color: var(--fg);
+}
+
+.terminal__box {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 160px;
+  padding: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.terminal__box .xterm {
+  height: 100%;
+  width: 100%;
+}
+
+/* xterm.css 给 viewport 写死 #000：不覆盖的话 .xterm 的内边距会露出一圈黑边，
+   深浅色下都难看。底色统一取应用的 --bg-elevated（与 readXtermTheme() 的 background 同一块色）。 */
+.terminal__box .xterm-viewport {
+  background-color: var(--bg-elevated);
+}
+
+.terminal__box .xterm .xterm-helper-textarea {
+  /* 移动端不放大：xterm 的隐藏输入框字号 >= 16px */
+  font-size: 16px;
 }

@@ -11,6 +11,7 @@ import SessionListView from "./components/SessionListView";
 import SessionView from "./components/SessionView";
 import SettingsView from "./components/SettingsView";
 import Tabs, { type TopTab } from "./components/Tabs";
+import TerminalView from "./components/TerminalView";
 import ThemeSwitch from "./components/ThemeSwitch";
 import { MOCK } from "./env";
 import { useServiceWorker } from "./sw";
@@ -48,7 +49,8 @@ type Screen =
   | { kind: "run"; id: string }
   | { kind: "node"; runId: string; nodeId: string }
   | { kind: "audit" }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  | { kind: "terminal" };
 
 function screenFromHash(): Screen {
   const hash = window.location.hash;
@@ -57,6 +59,7 @@ function screenFromHash(): Screen {
   if (/^#\/runs$/.test(hash)) return { kind: "runs" };
   if (/^#\/audit$/.test(hash)) return { kind: "audit" };
   if (/^#\/settings$/.test(hash)) return { kind: "settings" };
+  if (/^#\/terminal$/.test(hash)) return { kind: "terminal" };
   match = /^#\/run\/([^/]+)\/node\/([^/]+)$/.exec(hash);
   if (match) {
     return { kind: "node", runId: decodeURIComponent(match[1]), nodeId: decodeURIComponent(match[2]) };
@@ -80,6 +83,8 @@ function hashOf(screen: Screen): string {
       return "#/audit";
     case "settings":
       return "#/settings";
+    case "terminal":
+      return "#/terminal";
     default:
       return "#/sessions";
   }
@@ -87,7 +92,7 @@ function hashOf(screen: Screen): string {
 
 function tabOf(screen: Screen): TopTab | null {
   if (screen.kind === "runs" || screen.kind === "run" || screen.kind === "node") return "research";
-  if (screen.kind === "audit" || screen.kind === "settings") return null;
+  if (screen.kind === "audit" || screen.kind === "settings" || screen.kind === "terminal") return null;
   return "sessions";
 }
 
@@ -102,6 +107,8 @@ function backTargetOf(screen: Screen): Screen | null {
     case "audit":
       return { kind: "list" };
     case "settings":
+      return { kind: "list" };
+    case "terminal":
       return { kind: "list" };
     default:
       return null;
@@ -124,6 +131,8 @@ function titleOf(screen: Screen, sessions: Session[]): string {
       return "审计日志";
     case "settings":
       return "设置";
+    case "terminal":
+      return "终端";
     default:
       return "MISAKA WebUI";
   }
@@ -346,6 +355,8 @@ export default function App() {
             onAuthLost={handleAuthLost}
             onGoResearch={() => navigate({ kind: "runs" })}
           />
+        ) : screen.kind === "terminal" ? (
+          <TerminalView mock={MOCK} onAuthLost={handleAuthLost} />
         ) : (
           <SessionListView
             sessions={sessions}
@@ -368,6 +379,10 @@ export default function App() {
           onOpenSettings={() => {
             setMenuOpen(false);
             navigate({ kind: "settings" });
+          }}
+          onOpenTerminal={() => {
+            setMenuOpen(false);
+            navigate({ kind: "terminal" });
           }}
           onLogout={() => {
             setMenuOpen(false);

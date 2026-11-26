@@ -533,5 +533,6 @@ curl -sS http://127.0.0.1:8787/api/health | head -c 200
 
 - 票据：`POST /api/terminal/ticket` 走 Bearer 授权，发一次性票据（30 秒，绑定 UA）；WebSocket 只认票据，不接受长期 token。
 - 并发：`MISAKA_WEB_TERMINAL_MAX`（默认 1）。
+- `MISAKA_WEB_TERMINAL_IDLE`（默认 1800 秒）：闲置多久回收；`MISAKA_WEB_TERMINAL_HEARTBEAT`（默认 30 秒）给客户端发心跳帧，手机端硬关页面（不发断开帧）时靠它发现并清理。
 - 审计：`terminal_open` / `terminal_close`（profile、cwd、时长、退出码）；**不记录按键内容**。
 - 终端里的进程以服务账号身份运行——和 agent 本身同一权限，别把服务开成 root（见 §1 的账号说明）。

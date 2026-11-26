@@ -23,6 +23,21 @@ TICKETS: dict[str, dict[str, Any]] = {}
 ACTIVE: dict[str, int] = {}
 
 
+def _heartbeat_seconds() -> float:
+    try:
+        return max(0.05, float(os.environ.get("MISAKA_WEB_TERMINAL_HEARTBEAT") or 30))
+    except ValueError:
+        return 30.0
+
+
+def _idle_seconds() -> float:
+    """How long a terminal may sit untouched before the server reclaims it."""
+    try:
+        return max(1.0, float(os.environ.get("MISAKA_WEB_TERMINAL_IDLE") or 1800))
+    except ValueError:
+        return 1800.0
+
+
 def _limit() -> int:
     try:
         return max(1, int(os.environ.get("MISAKA_WEB_TERMINAL_MAX") or 1))
@@ -135,27 +150,58 @@ async def terminal_ws(websocket: WebSocket, ticket: str = "") -> None:
         return
 
     async def pump() -> None:
-        while True:
-            chunk = await pending.get()
-            await websocket.send_json({"type": "output", "data": chunk.decode("utf-8", "replace")})
+        try:
+            while True:
+                chunk = await pending.get()
+                await websocket.send_json({"type": "output", "data": chunk.decode("utf-8", "replace")})
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - the socket is gone; the handler tears down below
+            return
+
+    async def heartbeat() -> None:
+        """A periodic frame is what makes a vanished client visible to a silent terminal."""
+        try:
+            while True:
+                await asyncio.sleep(_heartbeat_seconds())
+                await websocket.send_json({"type": "ping"})
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            return
 
     async def reader() -> None:
-        while True:
-            message = await websocket.receive_json()
-            kind = message.get("type")
-            if kind == "input":
-                await terminal.write(str(message.get("data") or "").encode("utf-8"))
-            elif kind == "resize":
-                await terminal.resize(int(message.get("cols") or 100), int(message.get("rows") or 30))
-            elif kind == "ping":
-                await websocket.send_json({"type": "pong"})
+        try:
+            while True:
+                message = await websocket.receive_json()
+                kind = message.get("type")
+                if kind == "input":
+                    await terminal.write(str(message.get("data") or "").encode("utf-8"))
+                elif kind == "resize":
+                    await terminal.resize(int(message.get("cols") or 100), int(message.get("rows") or 30))
+                elif kind == "ping":
+                    await websocket.send_json({"type": "pong"})
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - disconnect or a dead socket ends this loop
+            return
 
     pump_task = asyncio.create_task(pump())
     reader_task = asyncio.create_task(reader())
+    beat_task = asyncio.create_task(heartbeat())
+    exit_task = asyncio.create_task(terminal.wait())
     try:
-        code = await terminal.wait()
-        await asyncio.sleep(0.05)
-        await websocket.send_json({"type": "exit", "code": code})
+        # Wait for the child to exit, the browser to leave, or the idle clock. Without this the
+        # handler would hang on a client that vanished, leak the slot and keep the child alive.
+        # Any of these ending means the terminal is over: the child exited, the browser left,
+        # the socket died under a write, or the idle clock ran out.
+        done, _pending = await asyncio.wait(
+            {exit_task, reader_task, pump_task, beat_task},
+            return_when=asyncio.FIRST_COMPLETED, timeout=_idle_seconds(),
+        )
+        if exit_task in done:
+            await asyncio.sleep(0.05)
+            await websocket.send_json({"type": "exit", "code": exit_task.result()})
     except WebSocketDisconnect:
         pass
     except Exception as error:  # noqa: BLE001
@@ -164,7 +210,7 @@ async def terminal_ws(websocket: WebSocket, ticket: str = "") -> None:
         except Exception:  # noqa: BLE001
             pass
     finally:
-        for task in (pump_task, reader_task):
+        for task in (pump_task, reader_task, beat_task, exit_task):
             task.cancel()
         await terminal.close()
         ACTIVE[hint] = max(0, ACTIVE.get(hint, 1) - 1)
