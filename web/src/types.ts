@@ -211,3 +211,66 @@ export type AuditEntry = {
 export const EDITABLE_LIMITS = ["sister_parallel", "parallel", "max_followups", "max_revisions"] as const;
 export type EditableLimitKey = (typeof EDITABLE_LIMITS)[number];
 export type LimitChanges = Partial<Record<EditableLimitKey, number>>;
+
+/* ------------------------------------------------------- M5 配置台（§3.7） */
+
+export type ProviderModel = { id: string; name: string };
+
+/** §3.7 的 Provider。契约写的是 providers[].models，真实服务端只给 model_count，
+    所以 models 可选：缺失时用 GET /api/settings/models?provider= 补。 */
+export type Provider = {
+  id: string;
+  name: string;
+  configured: boolean;
+  source?: string | null;
+  keyless: boolean;
+  models?: ProviderModel[];
+  model_count?: number;
+};
+
+export type ModelGlobal = {
+  provider?: string | null;
+  model?: string | null;
+  thinking?: string | null;
+};
+
+/** role = "last-order" | "sister:<id>"；settings 里是 defaultProvider / defaultModel。 */
+export type RoleDefault = { role: string; settings: Record<string, unknown> };
+
+export type ModelSettings = {
+  global: ModelGlobal;
+  roles: RoleDefault[];
+  providers: Provider[];
+};
+
+export type SaveModelResponse = { ok: boolean; role: string; provider: string; model: string };
+
+export type KeyEntry = {
+  name: string;
+  label: string;
+  configured: boolean;
+  source?: string | null;
+  hint: string;
+};
+
+export type KeysResponse = { path: string; keys: KeyEntry[] };
+
+export type SavedKeyResponse = { ok: boolean; name: string; hint: string };
+
+export type Sister = { id: string; specialty: string; model: string; thinking: string };
+
+export type SisterWriteResponse = { ok: boolean; id: string; message: string };
+export type SisterPatchResponse = { ok: boolean; id: string; changed: string[] };
+
+export type ProjectEntry = {
+  name: string;
+  path: string;
+  has_project_md: boolean;
+  is_git: boolean;
+  has_sources: boolean;
+  runs: number;
+};
+
+export type ProjectList = { root: string; projects: ProjectEntry[] };
+
+export type ProjectCreated = { ok: boolean; name: string; path: string; actions: string[] };

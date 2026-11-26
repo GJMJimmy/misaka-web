@@ -1,5 +1,6 @@
 type Props = {
   onClose: () => void;
+  onOpenSettings: () => void;
   onOpenAudit: () => void;
   onLogout: () => void;
   notificationSupported: boolean;
@@ -9,9 +10,10 @@ type Props = {
   mock: boolean;
 };
 
-/** 顶部「⋯」菜单：审计日志 / 提醒 / 退出登录。手机上一两个点击可达。 */
+/** 顶部「⋯」菜单：设置（配置台）/ 审计日志 / 提醒 / 退出登录。手机上一两个点击可达。 */
 export default function MenuSheet({
   onClose,
+  onOpenSettings,
   onOpenAudit,
   onLogout,
   notificationSupported,
@@ -41,6 +43,11 @@ export default function MenuSheet({
         </header>
 
         <div className="sheet__body">
+          <button type="button" className="menu-row" onClick={onOpenSettings}>
+            <span className="menu-row__label">设置（配置台）</span>
+            <span className="menu-row__meta">模型与密钥 / Sisters / 项目</span>
+          </button>
+
           <button type="button" className="menu-row" onClick={onOpenAudit}>
             <span className="menu-row__label">审计日志</span>
             <span className="menu-row__meta">stop / limits / tell / run_start 的写入记录</span>

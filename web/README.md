@@ -19,6 +19,7 @@ web/
     stream.ts           EventSource 订阅 SSE（snapshot / delta / error）
     mock.ts             VITE_MOCK=1 的本地后端（替换 fetch + EventSource）
     mock-research.ts    研究面假后端（/api/runs*，三条 run / 三层节点 / plan/cards/synthesis 文本）
+    mock-settings.ts    配置台假后端（/api/settings/*、/api/sisters*、/api/projects，含 422 与 confirmation_required）
     mock-http.ts        mock 共用的 json/error/delay 工具
     merge.ts            delta.entries 合并策略（追加、绝不重排）
     markdown-parse.ts   Markdown 块级 + 行内解析 + 引用定位符识别（纯函数、可在 Node 里自检）
@@ -30,6 +31,7 @@ web/
                         NewRunSheet（新建研究）/ LogSheet（进程日志）
                         SourcePanel / SourceBrowser / FileSheet（来源面板与原文）
                         AuditView（审计）/ MenuSheet（顶部菜单）
+                        SettingsView（配置台）+ SettingsModel / SettingsKeys / SettingsSisters / SettingsProjects
     sw.ts               Service Worker 注册 + 更新提示（仅生产）
     useReminders.ts     待办提醒：标题前缀 / tab 圆点 / 页面内通知
     print.ts            导出/打印（body class + window.print）
@@ -345,6 +347,37 @@ SSE 说明：`EventSource` 不能自定义请求头，所以 `/api/sessions/{id}
   - 若 `Notification.permission === "granted"` 且计数**增加**，发一条本地通知（`tag: misaka-runs`，点击聚焦窗口）——这是页面打开时的提醒，不是服务端推送。
 - **不主动弹权限请求**：只有菜单里的「开启提醒」按钮会调 `Notification.requestPermission()`。
 
+### 配置台 `#/settings`（M5）
+
+- 入口在第 4 个位置：顶部「⋯」菜单 → 「设置（配置台）」（点两下可达）。一页三块，用一排 chip 切换：
+  `模型与密钥` / `Sisters` / `项目`；不引入路由库，hash 只有 `#/settings`。
+- **模型**：provider 下拉 → 该 provider 的模型下拉（复用 `ModelPicker`）。**模型目录按需加载**：
+  进入设置页只调 `GET /api/settings/model`（它已经带 `model_count`），绝不为全部 provider 预取；
+  只有某个 provider 被选中（全局那一栏，或某个角色的「具体 provider/model」）才发
+  `GET /api/settings/models?provider=<id>`，结果按 provider id 缓存在 `api.ts`（同一 provider 的并发调用
+  只发一次，失败不缓存、可重试）。实测种子数据下进入设置页一共 **2 个请求**：
+  `/api/settings/model` + 唯一在用的 `deepseek` 目录；再选一个新 provider 才 +1。下拉加载时显示
+  「载入模型…」，失败把 422 的 `message` 原样显示在下拉下方。
+  下面逐个角色列覆盖（role = `last-order` / `sister:<id>`），可选「跟随全局」或「具体 provider/model」；
+  保存走 `PUT /api/settings/model`，成功后**回读**整份 `GET /api/settings/model` 并把返回的
+  `{role, provider, model}` 回显在顶部 notice 里。「跟随全局」发的是空 `provider`/`model` + 该 `role`
+  （与契约里 `model:""` 取消钉死同义）；服务端不接受就把它 422 的 `message` 原样显示。
+- **密钥**：`GET /api/settings/keys` 的白名单逐行渲染 label + 状态（`已设置 · 来源` / `未设置`）+ `hint`；
+  「设置/更换」先开一层面板输入（`type="password"`、`autocomplete="new-password"`），再一层确认
+  （写明「写进 `<env 路径>`、权限 0600」），确认后才 `PUT`，成功后只显示新的 `hint`。
+  **明文只存在于那个 password 输入框的 state**：不写 localStorage、不进 URL、不进任何 `<code>`/`title`，
+  提交或关掉面板立刻 `setDraft("")`。删除同样要确认（`DELETE`）。
+- **Sisters**：`GET /api/sisters` 卡片（ID / 专长 / 模型 / thinking）+ 新建（ID + 专长 + 可选
+  `provider/model` + thinking）/ 编辑（专长文本域、provider 留空=跟随全局、thinking 用 `<datalist>` 建议
+  low/medium/high）/ 删除；删除确认层写明「她的卡片与会话会保留」。`DELETE` 带 `{confirm:true}`。
+- **项目**：`GET /api/projects` 列出工作区根下目录（名字、git / PROJECT.md / sources 徽标、已有 run 数）+
+  新建（名字 + 是否 git init）；成功后显示 `path` 与 `actions` 列表，并给一个「去『研究』起 run」的按钮。
+- 所有写操作都是**两次确认 → 提交 → 回读**，失败不做乐观更新；422 的 `message` 原样展示（错误条里不放 code 前缀）。
+- mock：`mock-settings.ts` 覆盖 §3.7 的 11 个端点（外加 `GET /api/settings/models` 兜底），
+  并内置了可演示的拒绝路径——模型不在目录、密钥名不在白名单、密钥短于 8 位、Sister ID 非法 / 重名 / 未注册、
+  项目重名、`DELETE /api/sisters/{id}` 缺 `confirm` → 422 `confirmation_required`。
+  状态只在内存里（刷新页面回到种子值），密钥明文只用来算 `hint`（前 4 位 + 长度），从不回给前端。
+
 ## 已知限制（M0–M4 未做）
 
 - **没有 Service Worker**：只提供 manifest + standalone 显示，暂不做离线缓存
@@ -374,3 +407,9 @@ SSE 说明：`EventSource` 不能自定义请求头，所以 `/api/sessions/{id}
 - **通知权限流程未实测**：`Notification` 需要安全上下文（https 或 localhost），在纯 http 的内网地址上会失败；
   界面只做「未开启/已拒绝/不支持」三态文案，不探测原因。
 - 提醒只统计 `GET /api/runs` 的 `awaiting_approval` 与失败状态；不覆盖「节点级」待审批（`RunDetail.nodes` 才有的信息）。
+- **M5 未与真后端联调**：11 个端点的行为只在 mock 里逐条验证过（含 422 与 `confirmation_required`），
+  真实服务端的 `providers[].models` 缺口、`PUT /api/settings/model` 对空 `provider/model` 是否接受、
+  审计行里新增的 `model` / `key_set` / `sister_add` 等 action 的展示，都没连真服务确认。
+- **配置台没有真机截图**：本会话浏览器不可用，390px 下不横向滚动是静态检查的证据
+  （新样式只有 `select.field__input{width:100%;min-width:0}`、`.settings-ref`/`.panel__meta` 的
+  `overflow-wrap:anywhere`、`.card__top > .panel__title` 的换行），未在 390x844 里实测。

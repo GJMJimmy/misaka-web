@@ -13,6 +13,19 @@ import type {
   SourceList,
   AuditEntry,
   StopRunResponse,
+  KeysResponse,
+  ModelGlobal,
+  ModelSettings,
+  ProjectCreated,
+  ProjectList,
+  Provider,
+  ProviderModel,
+  RoleDefault,
+  SavedKeyResponse,
+  SaveModelResponse,
+  Sister,
+  SisterPatchResponse,
+  SisterWriteResponse,
 } from "./types";
 
 const TOKEN_KEY = "misaka.web.token";
@@ -385,4 +398,144 @@ export async function setMockResearchMode(patch: {
     method: "POST",
     body: jsonBody(patch),
   });
+}
+
+/* ------------------------------------------------------- M5 配置台（§3.7） */
+
+/** GET /api/settings/model —— 防御式解析：global / roles / providers 缺一个都不该整页白。 */
+export async function getModelSettings(): Promise<ModelSettings> {
+  const body = await requestJson<unknown>("/api/settings/model");
+  const record = isPlainRecord(body) ? body : {};
+  return {
+    global: isPlainRecord(record.global) ? (record.global as ModelGlobal) : {},
+    roles: Array.isArray(record.roles) ? (record.roles as RoleDefault[]) : [],
+    providers: Array.isArray(record.providers) ? (record.providers as Provider[]) : [],
+  };
+}
+
+/**
+ * GET /api/settings/models?provider= —— **按需**取一个 provider 的模型目录。
+ *
+ * 只服务「用户选中了某个 provider」这一件事：进入设置页绝不为所有 provider 预取
+ * （那样一次会打出几十个请求）。按 provider id 缓存，同一 provider 的并发调用只发一次；
+ * 失败不缓存，重试就能重新发。
+ */
+const MODEL_CACHE = new Map<string, ProviderModel[]>();
+const MODEL_IN_FLIGHT = new Map<string, Promise<ProviderModel[]>>();
+
+export async function getProviderModels(provider: string): Promise<ProviderModel[]> {
+  const cached = MODEL_CACHE.get(provider);
+  if (cached) return cached;
+  const pending = MODEL_IN_FLIGHT.get(provider);
+  if (pending) return pending;
+
+  const task = requestJson<{ models?: ProviderModel[] }>(
+    `/api/settings/models?provider=${encodeURIComponent(provider)}`,
+  )
+    .then((body) => {
+      const models = Array.isArray(body?.models) ? body.models : [];
+      MODEL_CACHE.set(provider, models);
+      return models;
+    })
+    .finally(() => {
+      MODEL_IN_FLIGHT.delete(provider);
+    });
+  MODEL_IN_FLIGHT.set(provider, task);
+  return task;
+}
+
+/** 换了密钥就可能多出/少掉模型：密钥写入或删除后让目录缓存失效。 */
+function forgetModelCatalog(): void {
+  MODEL_CACHE.clear();
+  MODEL_IN_FLIGHT.clear();
+}
+
+/** PUT /api/settings/model —— role 省略=写全局；role 给空 provider/model=mock 侧的「跟随全局」。 */
+export async function saveModelSettings(body: {
+  provider: string;
+  model: string;
+  role?: string;
+}): Promise<SaveModelResponse> {
+  return requestJson<SaveModelResponse>("/api/settings/model", {
+    method: "PUT",
+    body: jsonBody(body),
+  });
+}
+
+/** GET /api/settings/keys —— 只有 hint，永远没有明文。 */
+export async function getSettingsKeys(): Promise<KeysResponse> {
+  const body = await requestJson<{ path?: string; keys?: unknown }>("/api/settings/keys");
+  return {
+    path: typeof body?.path === "string" ? body.path : "",
+    keys: Array.isArray(body?.keys) ? (body.keys as KeysResponse["keys"]) : [],
+  };
+}
+
+/** PUT /api/settings/keys/{name} —— value 只进请求体，从不回到 DOM。 */
+export async function putSettingsKey(name: string, value: string): Promise<SavedKeyResponse> {
+  const result = await requestJson<SavedKeyResponse>(`/api/settings/keys/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: jsonBody({ value }),
+  });
+  forgetModelCatalog();
+  return result;
+}
+
+/** DELETE /api/settings/keys/{name} */
+export async function deleteSettingsKey(name: string): Promise<{ ok: boolean; name: string }> {
+  const result = await requestJson<{ ok: boolean; name: string }>(
+    `/api/settings/keys/${encodeURIComponent(name)}`,
+    { method: "DELETE" },
+  );
+  forgetModelCatalog();
+  return result;
+}
+
+/** GET /api/sisters */
+export async function listSisters(): Promise<Sister[]> {
+  const body = await requestJson<{ sisters?: unknown }>("/api/sisters");
+  return Array.isArray(body?.sisters) ? (body.sisters as Sister[]) : [];
+}
+
+/** POST /api/sisters */
+export async function createSister(body: {
+  id: string;
+  specialty?: string;
+  model?: string;
+  thinking?: string;
+}): Promise<SisterWriteResponse> {
+  return requestJson<SisterWriteResponse>("/api/sisters", { method: "POST", body: jsonBody(body) });
+}
+
+/** PATCH /api/sisters/{id} —— model:"" 表示取消钉死、回到全局默认。 */
+export async function patchSister(
+  id: string,
+  body: { specialty?: string; model?: string; thinking?: string },
+): Promise<SisterPatchResponse> {
+  return requestJson<SisterPatchResponse>(`/api/sisters/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: jsonBody(body),
+  });
+}
+
+/** DELETE /api/sisters/{id} —— 服务端要求显式 confirm，否则 422 confirmation_required。 */
+export async function deleteSister(id: string): Promise<SisterWriteResponse> {
+  return requestJson<SisterWriteResponse>(`/api/sisters/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    body: jsonBody({ confirm: true }),
+  });
+}
+
+/** GET /api/projects */
+export async function listProjects(): Promise<ProjectList> {
+  const body = await requestJson<{ root?: string; projects?: unknown }>("/api/projects");
+  return {
+    root: typeof body?.root === "string" ? body.root : "",
+    projects: Array.isArray(body?.projects) ? (body.projects as ProjectList["projects"]) : [],
+  };
+}
+
+/** POST /api/projects */
+export async function createProject(body: { name: string; git?: boolean }): Promise<ProjectCreated> {
+  return requestJson<ProjectCreated>("/api/projects", { method: "POST", body: jsonBody(body) });
 }

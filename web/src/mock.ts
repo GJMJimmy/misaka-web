@@ -1,5 +1,6 @@
 import { delay, errorResponse, jsonResponse } from "./mock-http";
 import { handleResearch } from "./mock-research";
+import { handleSettings } from "./mock-settings";
 import type { Delta, Entry, Session, SessionRunState, Snapshot } from "./types";
 
 /**
@@ -415,6 +416,12 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   // M1 研究面（/api/runs*）与 mock 演示开关（/api/__mock/*）交给 mock-research.ts
   if (path.startsWith("/api/runs") || path === "/api/audit" || path.startsWith("/api/__mock/")) {
     const handled = await handleResearch(path, method, bodyText, url.searchParams);
+    if (handled) return handled;
+  }
+
+  // M5 配置台（§3.7）交给 mock-settings.ts
+  if (path.startsWith("/api/settings/") || path.startsWith("/api/sisters") || path === "/api/projects") {
+    const handled = await handleSettings(path, method, bodyText, url.searchParams);
     if (handled) return handled;
   }
 

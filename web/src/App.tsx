@@ -9,6 +9,7 @@ import ResearchListView from "./components/ResearchListView";
 import RunDetailView from "./components/RunDetailView";
 import SessionListView from "./components/SessionListView";
 import SessionView from "./components/SessionView";
+import SettingsView from "./components/SettingsView";
 import Tabs, { type TopTab } from "./components/Tabs";
 import ThemeSwitch from "./components/ThemeSwitch";
 import { MOCK } from "./env";
@@ -46,7 +47,8 @@ type Screen =
   | { kind: "runs" }
   | { kind: "run"; id: string }
   | { kind: "node"; runId: string; nodeId: string }
-  | { kind: "audit" };
+  | { kind: "audit" }
+  | { kind: "settings" };
 
 function screenFromHash(): Screen {
   const hash = window.location.hash;
@@ -54,6 +56,7 @@ function screenFromHash(): Screen {
   if (match) return { kind: "session", id: decodeURIComponent(match[1]) };
   if (/^#\/runs$/.test(hash)) return { kind: "runs" };
   if (/^#\/audit$/.test(hash)) return { kind: "audit" };
+  if (/^#\/settings$/.test(hash)) return { kind: "settings" };
   match = /^#\/run\/([^/]+)\/node\/([^/]+)$/.exec(hash);
   if (match) {
     return { kind: "node", runId: decodeURIComponent(match[1]), nodeId: decodeURIComponent(match[2]) };
@@ -75,6 +78,8 @@ function hashOf(screen: Screen): string {
       return `#/run/${encodeURIComponent(screen.runId)}/node/${encodeURIComponent(screen.nodeId)}`;
     case "audit":
       return "#/audit";
+    case "settings":
+      return "#/settings";
     default:
       return "#/sessions";
   }
@@ -82,7 +87,7 @@ function hashOf(screen: Screen): string {
 
 function tabOf(screen: Screen): TopTab | null {
   if (screen.kind === "runs" || screen.kind === "run" || screen.kind === "node") return "research";
-  if (screen.kind === "audit") return null;
+  if (screen.kind === "audit" || screen.kind === "settings") return null;
   return "sessions";
 }
 
@@ -95,6 +100,8 @@ function backTargetOf(screen: Screen): Screen | null {
     case "node":
       return { kind: "run", id: screen.runId };
     case "audit":
+      return { kind: "list" };
+    case "settings":
       return { kind: "list" };
     default:
       return null;
@@ -115,6 +122,8 @@ function titleOf(screen: Screen, sessions: Session[]): string {
       return `节点 ${screen.nodeId}`;
     case "audit":
       return "审计日志";
+    case "settings":
+      return "设置";
     default:
       return "MISAKA WebUI";
   }
@@ -332,6 +341,11 @@ export default function App() {
           />
         ) : screen.kind === "audit" ? (
           <AuditView onAuthLost={handleAuthLost} />
+        ) : screen.kind === "settings" ? (
+          <SettingsView
+            onAuthLost={handleAuthLost}
+            onGoResearch={() => navigate({ kind: "runs" })}
+          />
         ) : (
           <SessionListView
             sessions={sessions}
@@ -350,6 +364,10 @@ export default function App() {
           onOpenAudit={() => {
             setMenuOpen(false);
             navigate({ kind: "audit" });
+          }}
+          onOpenSettings={() => {
+            setMenuOpen(false);
+            navigate({ kind: "settings" });
           }}
           onLogout={() => {
             setMenuOpen(false);

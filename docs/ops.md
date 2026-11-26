@@ -498,3 +498,20 @@ curl -sS http://127.0.0.1:8787/api/health | head -c 200
 - [ ] 手机上：登录 → 会话流式 → 研究列表 → 节点 → 来源面板 → 点一页打开 PDF
 - [ ] 断网 30 秒：界面回退到缓存壳并显示离线 banner；恢复后手动重连即可续看
 - [ ] `tail -n 5 ~/.config/misaka-web/audit.jsonl` 能看到刚才那几次写操作
+## 11. 配置台（M5）
+
+手机上的「设置」`#/settings` 能改三样东西，都会写服务器上的文件：
+
+| 改什么 | 写到哪里 | 说明 |
+|---|---|---|
+| provider / 模型 | `~/.misaka/settings.json`（全局）或 `profiles/<role>/settings.json`（角色） | 走上游 `SettingsManager` 与 `profiles.persist_role_default_model` |
+| API key | `~/.misaka/.env`（0600） | **只允许白名单里的变量名**；写入后界面只回显前 4 位 + 长度，永不回读明文 |
+| Sisters | `~/.misaka/profiles/sisters/<id>/` | 新建走上游 `create_sister`；改专长只动 `DESCRIBE.md` 的 frontmatter，正文里你手写的部分保留 |
+| 项目 | `MISAKA_WEB_WORKSPACE_ROOT` 下的新目录 | 自动 `git init` + `PROJECT.md` + `cards/` + `sources/` + 首次提交 |
+
+安全边界：
+
+- 持有访问 token 的人就能改这些——**它等同于服务器上该账号的配置写权限**，别在共享设备上长期登录；
+- 所有写操作都进 `audit.jsonl`（`model` / `key_set` / `key_clear` / `sister_add` / `sister_edit` / `sister_remove` / `project_create`），`key_set` 只记 hint，不记值；
+- 删除 Sister 需要 `confirm:true`；项目名与 Sister ID 有白名单正则，`../` 之类直接 422；
+- `MISAKA_*` 开头的环境变量被上游拒绝，所以网页碰不到 MISAKA 自己的设置变量。

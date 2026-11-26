@@ -2269,6 +2269,7 @@ a.btn {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-inset);
+}
 
 /* iOS cannot page a PDF inside the app: the sheet shows one decisive action instead. */
 .pdf-ios {
@@ -2283,4 +2284,68 @@ a.btn {
   font-family: var(--font-mono);
   font-size: 14px;
   overflow-wrap: anywhere;
+}
+
+/* ---------- M5 配置台（§3.7）：模型/密钥行、Sisters 与项目卡片 ---------- */
+select.field__input {
+  width: 100%;
+  min-width: 0; /* 390px 下不撑破容器 */
+}
+
+.settings-ref {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:first-of-type {
+  padding-top: 0;
+}
+
+.settings-row:last-of-type {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-row__name {
+  font-size: 15px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.settings-row__hint {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.card__top > .panel__title {
+  min-width: 0;
+  overflow-wrap: anywhere; /* 项目名 / Sister 专长可能很长，390px 下不撑宽 */
 }
