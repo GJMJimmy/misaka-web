@@ -298,3 +298,57 @@ def update_limits(run_id: str, changes: dict[str, Any]) -> dict[str, Any]:
         _load(con, run_id)
         before, after = runs.update_limits(con, run_id, changes)
     return {"ok": True, "before": before, "after": after}
+
+def resolve_file(run_id: str, path: str, *, node_id: str | None = None) -> str:
+    """A file inside the run workspace, resolved and fenced; never outside it."""
+    with connect() as con:
+        run, modules = _load(con, run_id)
+        workspace = os.path.realpath(run["workspace"])
+        base = workspace
+        if node_id:
+            node = modules["runs"].node(con, node_id)
+            if not node or node.get("run_id") != run_id:
+                raise NodeNotFound(node_id)
+            base = os.path.realpath(os.path.join(workspace, modules["runs"].node_dir(node_id)))
+    target = os.path.realpath(os.path.join(base, str(path or "")))
+    root = os.path.realpath(workspace)
+    if target != root and not target.startswith(root + os.sep):
+        raise ValueError(f"Path escapes the run workspace: {path}")
+    if not os.path.isfile(target):
+        raise FileNotFoundError(path)
+    return target
+
+
+def sources(run_id: str, *, node_id: str | None = None) -> dict[str, Any]:
+    """The SOURCES manifest of one node, or of the run's final report when no node is named."""
+    from . import sources as manifests
+
+    with connect() as con:
+        run, modules = _load(con, run_id)
+        workspace = run["workspace"]
+        if node_id:
+            node = modules["runs"].node(con, node_id)
+            if not node or node.get("run_id") != run_id:
+                raise NodeNotFound(node_id)
+            folder = os.path.join(workspace, modules["runs"].node_dir(node_id))
+        else:
+            final = os.path.join(workspace, "final")
+            candidates = sorted(
+                (name for name in os.listdir(final) if name.endswith("-SOURCES.md"))
+                if os.path.isdir(final) else [],
+            )
+            if not candidates:
+                raise FileNotFoundError("This run has no final SOURCES.md yet.")
+            folder = None
+    parsed = manifests.read_manifest(folder) if folder else None
+    if parsed is None and folder is None:
+        parsed = manifests.read_manifest_path(os.path.join(final, candidates[-1]))
+    if parsed is None:
+        raise FileNotFoundError("This node has no SOURCES.md yet.")
+    manifest_dir = os.path.dirname(parsed["path"])
+    for source in parsed["sources"]:
+        placed = os.path.join(manifest_dir, source["placed"])
+        source["exists"] = os.path.isfile(placed)
+        source["size"] = os.path.getsize(placed) if source["exists"] else None
+    parsed["node_id"] = node_id
+    return parsed

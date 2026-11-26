@@ -13,7 +13,8 @@ server {
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
+    # SAMEORIGIN（不是 DENY）：应用内要嵌同一源的 PDF（M3 引用跳转）。
+    add_header X-Frame-Options "SAMEORIGIN" always;
     add_header Referrer-Policy "no-referrer" always;
 
     location / {

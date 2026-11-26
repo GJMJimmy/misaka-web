@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import mimetypes
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .. import audit, auth
@@ -165,3 +168,29 @@ async def limits(run_id: str, body: LimitsBody) -> dict[str, Any]:
     except Exception as error:  # noqa: BLE001
         _board_error(error)
         raise
+
+@router.get("/{run_id}/sources")
+async def run_sources(run_id: str, node: str | None = None) -> dict[str, Any]:
+    """The SOURCES manifest beside a node's product, or beside the final report."""
+    try:
+        return board.sources(run_id, node_id=node)
+    except Exception as error:  # noqa: BLE001
+        _board_error(error)
+        raise
+
+
+@router.get("/{run_id}/file")
+async def run_file(run_id: str, path: str, node: str | None = None) -> FileResponse:
+    """Stream one file from the run workspace; Range is passed through for PDF viewers."""
+    try:
+        target = board.resolve_file(run_id, path, node_id=node)
+    except Exception as error:  # noqa: BLE001
+        _board_error(error)
+        raise
+    media_type = mimetypes.guess_type(target)[0] or "application/octet-stream"
+    return FileResponse(
+        target,
+        media_type=media_type,
+        filename=None,
+        headers={"cache-control": "private, max-age=60", "content-disposition": "inline"},
+    )

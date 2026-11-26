@@ -154,6 +154,32 @@ type NodeDetail = NodeSummary & {
 **日志**：`<token 目录>/runs/*.log`；进程状态记在 `<token 目录>/runs.json`（0600）。
 **审计**：`run_start` / `resume` / `stop` / `terminate` 均记入 `audit.jsonl`。
 
+
+### 3.5 来源与原文（M3）
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| GET | `/api/runs/{id}/sources?node=<node_id>` | 不带 node 时读 `final/*-SOURCES.md` | `{path, node_id, products:[{path,title,kind}], sources:[Source]}`；没有清单 → 404 |
+| GET | `/api/runs/{id}/file?path=<rel>&node=<node_id>` | `path` 相对节点目录（带 node）或运行 workspace | 文件本身，`content-disposition: inline`，**支持 Range（206）**；越界 422，缺失 404 |
+
+```ts
+type Source = {
+  placed: string;      // sources/xxx.pdf（相对 SOURCES.md 所在目录）
+  original: string;    // downloads/xxx.pdf 或 http(s) URL
+  sha256: string | null;
+  details: string[];   // 清单里的其余说明行
+  locators: string[];  // doc:<id>#p<n> 形式的定位符
+  pages: number[];     // 从定位符里解析出的页码，升序
+  exists: boolean; size: number | null;
+};
+```
+
+**怎么读引用**：正文里的 `doc:<id>#p42` 与 `p.<n>` 是「这条结论落在哪一页」的锚点。界面应当把它变成一次跳转，而不是假装自己知道语义：
+
+- `doc:<id>#p42` → 若该 locator 出现在某个 source 的 `locators` 里，直接打开该文件第 42 页；匹配不到就打开来源面板并高亮这个 locator（不要猜文件）。
+- `p.<n>` → 打开来源面板并高亮第 n 页（清单里可能有多份来源，猜错比不跳更糟）。
+- 打开文件：应用内 sheet 用 `<embed type="application/pdf" src="…/file?path=…&node=…">`，并把页码放在 **hash**（`#page=42`）。iOS Safari 对 iframe 内 PDF 支持不佳，所以 sheet 里**必须**同时给「在新标签打开」按钮（同一 URL）。
+
 ## 4. 上游接缝（只读参考，供实现者对齐语义）
 
 - 控制协议：`misaka/core/session_control.py:1-5,29-46,186-214`（一命令一 ack；`snapshot` 支持 cursor 增量）

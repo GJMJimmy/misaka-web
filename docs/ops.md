@@ -271,7 +271,7 @@ sudo systemctl start misaka-web
 **传输**
 
 - [ ] 只通过 HTTPS 访问；Caddy 证书自动续期正常（`journalctl -u caddy | grep -i cert`）。
-- [ ] HSTS、`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy` 已下发
+- [ ] HSTS、`X-Content-Type-Options`、`X-Frame-Options`（必须是 `SAMEORIGIN`，`DENY` 会让应用内 PDF 打不开）、`Referrer-Policy`、`Permissions-Policy` 已下发
       （`curl -sSI https://<域名>/ | grep -i strict` 能看到）。
 - [ ] 强制 CSP 之前先用 report-only 跑一遍，确认 Vite 产物不报错再收紧（`Caddyfile.example` 里有说明）。
 

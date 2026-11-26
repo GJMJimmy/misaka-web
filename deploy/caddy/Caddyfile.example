@@ -68,7 +68,8 @@ misaka.example.com {
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
+		# SAMEORIGIN（不是 DENY）：M3 的引用跳转会在应用内嵌同一源的 PDF，DENY 会把它挡掉。
+		X-Frame-Options "SAMEORIGIN"
 		Referrer-Policy "no-referrer"
 		Permissions-Policy "geolocation=(), microphone=(), camera=()"
 		Cross-Origin-Opener-Policy "same-origin"

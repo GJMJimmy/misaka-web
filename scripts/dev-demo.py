@@ -58,6 +58,33 @@ def _respond(owner: FakeOwner) -> None:
         owner.revision += 1
 
 
+def _demo_pdf(path: "pathlib.Path", pages: int = 3) -> None:
+    """A tiny valid PDF, so the citation jump has a real page target in the demo."""
+    objs = ["<< /Type /Catalog /Pages 2 0 R >>"]
+    kids = " ".join("{0} 0 R".format(3 + i * 2) for i in range(pages))
+    objs.append("<< /Type /Pages /Kids [{0}] /Count {1} >>".format(kids, pages))
+    for index in range(pages):
+        objs.append(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents {0} 0 R "
+            "/Resources << /Font << /F1 {1} 0 R >> >> >>".format(4 + index * 2, 3 + pages * 2)
+        )
+        stream = "BT /F1 28 Tf 72 760 Td (Page {0}) Tj ET".format(index + 1)
+        objs.append("<< /Length {0} >>\nstream\n{1}\nendstream".format(len(stream), stream))
+    objs.append("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for index, body in enumerate(objs, start=1):
+        offsets.append(len(out))
+        out += "{0} 0 obj\n{1}\nendobj\n".format(index, body).encode()
+    xref = len(out)
+    count = len(objs) + 1
+    out += "xref\n0 {0}\n".format(count).encode() + b"0000000000 65535 f \n"
+    for offset in offsets:
+        out += "{0:010d} 00000 n \n".format(offset).encode()
+    out += "trailer\n<< /Size {0} /Root 1 0 R >>\nstartxref\n{1}\n%%EOF\n".format(count, xref).encode()
+    path.write_bytes(bytes(out))
+
+
 def _seed_board(home: "pathlib.Path", workspace: "pathlib.Path", owner_session_id: str = "sess-demo-1") -> None:
     """Give the UI a board to read: two runs, three depths, markdown on disk.
 
@@ -83,15 +110,37 @@ def _seed_board(home: "pathlib.Path", workspace: "pathlib.Path", owner_session_i
         upstream.root(con, second["id"])  # create() already plants the root node
         con.commit()
 
-        plan = "# 研究计划\n\n## 问题的两种读法\n\n一是财政弹性，二是记账口径。\n\n## 覆盖表\n\n| 子问题 | 卡片 |\n|---|---|\n| 捐输进项 | c1 |\n| 折色比例 | —（空白即缺口） |\n\n## 分工\n\n- Sister 10032：清代财政与捐输制度。\n"
-        card = "# 卡片 c1\n\n- 声明：捐输进项在灾年反而上升。\n- 类型：事实\n- 依据：p.42，字符偏移 1180\n- 引文：「是岁捐输倍于常年。」\n"
-        synthesis = "# 结论（第 1 版）\n\n三条线索互相冲突。所谓弹性，可能只是记账口径造成的幻觉。\n\n## 未采纳的方向\n\n税关记录与账册不同源，需要另开节点。\n"
+        plan = "# 研究计划\n\n## 问题的两种读法\n\n一是财政弹性，二是记账口径。依据见 `doc:1a2b3c4d#p2`，另参 p.3。\n\n## 覆盖表\n\n| 子问题 | 卡片 |\n|---|---|\n| 捐输进项 | c1 |\n| 折色比例 | —（空白即缺口） |\n\n## 分工\n\n- Sister 10032：清代财政与捐输制度，材料在 `downloads/zhenzai-v3.pdf`。\n"
+        card = "# 卡片 c1\n\n- 声明：捐输进项在灾年反而上升。\n- 类型：事实\n- 依据：`doc:1a2b3c4d#p2`，字符偏移 1180\n- 引文：「是岁捐输倍于常年。」\n"
+        synthesis = "# 结论（第 1 版）\n\n三条线索互相冲突（`doc:1a2b3c4d#p3`）。所谓弹性，可能只是记账口径造成的幻觉。\n\n## 未采纳的方向\n\n税关记录与账册不同源，需要另开节点。\n"
+        sources_md = (
+            "# Sources — 庚子赈灾账册与地方财政弹性\n\n"
+            "Files gathered for this product.\n\n## Products\n\n"
+            "- `synthesis.md` — 结论 (synthesis)\n\n"
+            "## Cited sources (under `sources/`/)\n\n"
+            "- `sources/zhenzai-v3.pdf` ← `downloads/zhenzai-v3.pdf`\n"
+            "  - 赈灾账册卷三（扫描件）\n"
+            "  - sha256 9f2c0d1eaa\n"
+            "  - cited as `doc:1a2b3c4d#p2` in plan\n"
+            "  - cited as `doc:1a2b3c4d#p3` in conclusion\n"
+            "- `sources/tax-records.txt` ← `downloads/tax-records.txt`\n"
+            "  - 税关记录抄件\n"
+            "  - sha256 77aa11\n"
+            "- `sources/absent-notice.pdf` ← `downloads/absent-notice.pdf`\n"
+            "  - 清单里有、磁盘上故意没放（演示 exists=false）\n"
+        )
+
+
         folder = workspace / "nodes" / root["id"]
         (folder / "cards").mkdir(parents=True, exist_ok=True)
         (folder / "plan.md").write_text(plan, encoding="utf-8")
         (folder / "cards" / "c1.md").write_text(card, encoding="utf-8")
         (folder / "synthesis.md").write_text(synthesis, encoding="utf-8")
-        (folder / "SOURCES.md").write_text("# 来源\n\n- 《赈灾账册》卷三（p.42）\n", encoding="utf-8")
+        (folder / "SOURCES.md").write_text(sources_md, encoding="utf-8")
+        sources_dir = folder / "sources"
+        sources_dir.mkdir(parents=True, exist_ok=True)
+        _demo_pdf(sources_dir / "zhenzai-v3.pdf", 3)
+        (sources_dir / "tax-records.txt").write_text("税关记录：是岁捐输倍于常年。", encoding="utf-8")
     # Make the root node look like a Last Order is attached, so the approval path is demoable:
     # the run points at the demo transcript, the catalog record carries that path, and the node
     # waits for the go-ahead.
