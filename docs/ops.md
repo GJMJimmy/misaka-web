@@ -80,6 +80,21 @@ cd /opt/misaka-web
 > 以 root 执行会得到 WARN：venv 和 token 会变成 root 的，systemd 用 `User=` 启动时读不到 → 401。
 > 正确姿势：用研究账号执行，`sudo -u misaka ./deploy/install.sh ...`。
 
+#### 安装器做了什么（`deploy/install.sh`）
+
+```sh
+./deploy/install.sh                  # 交互：问 token（回车则自动生成并只显示一次）→ 写入 0600 → doctor
+./deploy/install.sh --with-misaka    # 研究面：把 misaka[providers] 装进同一个 venv（优先本地 ../misaka）
+./deploy/install.sh --token-stdin    # printf %s "$T" | ./deploy/install.sh --token-stdin
+./deploy/install.sh --generate --yes # 无人值守：换一个新 token 并打印一次
+./deploy/install.sh --lan            # 绑 0.0.0.0（内网手机访问），并打印安全上下文代价
+./deploy/install.sh --print-caddy --lan   # 打印 tls internal 的内网 Caddy 片段
+./deploy/install.sh --systemd        # root：按仓库单元模板生成 /etc/systemd/system/misaka-web.service 并启用
+./deploy/install.sh --dry-run        # 只打印将执行的命令
+```
+
+安装器不装系统包、不改防火墙；唯一需要 root 的是 `--systemd`。
+
 ### 2.4 systemd
 
 ```sh

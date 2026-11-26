@@ -91,9 +91,16 @@ def main() -> int:
     width = max(len(check["name"]) for check in checks)
     failures = 0
     for check in checks:
-        mark = "ok  " if check["ok"] else ("FAIL" if check["ok"] is False else "warn")
+        # FAIL only for what blocks a deploy; a non-fatal miss is a warning, not a failure.
         if check["ok"] is False and check["fatal"]:
+            mark = "FAIL"
             failures += 1
+        elif check["ok"] is False:
+            mark = "warn"
+        elif check["ok"] is None:
+            mark = "warn"
+        else:
+            mark = "ok  "
         print(f"[{mark}] {check['name'].ljust(width)}  {check['detail']}")
     print("")
     print("All fatal checks passed." if failures == 0 else f"{failures} fatal check(s) failed.")

@@ -66,9 +66,12 @@ pnpm exec vite build && ../scripts/sync-web.sh   # 产物进包内 static/，并
 `docs/ops.md` 是完整运维文档（安装、token 轮换、升级、备份、加固、排障）。最短路径：
 
 ```sh
-./deploy/install.sh --with-misaka     # 研究面需要 misaka 在同一个 venv 里
-sudo cp deploy/systemd/misaka-web.service /etc/systemd/system/   # 改 User/Group/HOME/ExecStart
-sudo systemctl enable --now misaka-web
+./deploy/install.sh --with-misaka            # venv + 依赖 + token + 自检
+# 它会在终端里问你要 token（直接回车＝自动生成一个并只打印这一次）；也可以：
+#   ./deploy/install.sh --token 'xxx' / --token-stdin / --generate --yes
+#   ./deploy/install.sh --lan                  # 绑 0.0.0.0 供内网手机访问（会说明代价）
+#   ./deploy/install.sh --systemd              # 生成并启用 systemd 单元（需要 root）
+#   ./deploy/install.sh --print-caddy --lan    # 打印内网 Caddy 片段（tls internal）
 ```
 
 **不要给这个服务开 `PrivateTmp=yes`**：MISAKA 的控制 socket 在 `/tmp/misaka-session-*/`，私有 /tmp 会让所有会话不可达（`/api/health` 的 `control_parent` 会暴露这件事）。

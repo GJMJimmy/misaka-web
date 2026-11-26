@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# misaka-web 安装 / 升级脚本（M0）
-# 幂等：可以反复执行。已存在的 venv、已存在的 token、已安装的包都不会被破坏。
+# misaka-web 安装器：venv → 依赖 → token → 自检（可选：systemd / Caddy 片段）
 #
-# 有意不做的事（不越权、也不替你改系统）：
-#   不安装系统包、不修改防火墙、不写 /etc —— systemd 单元与 Caddyfile 只打印安装命令；
-#   不打印 token 内容（它等同于这个 WebUI 的全部凭据）。
+# 幂等：可以反复执行。已存在的 venv、已存在的 token 都不会被破坏。
+# 不安装系统包、不改防火墙、不写 /etc（除非你显式传 --systemd）。
 #
 # 用法：
-#   ./deploy/install.sh                              装到 <repo>/.venv
-#   ./deploy/install.sh --venv /opt/misaka-web/.venv 指定 venv（systemd 的 ExecStart 用这个路径）
-#   ./deploy/install.sh --with-misaka                 额外安装上游 misaka[providers]（可选）
-# 环境变量：MISAKA_WEB_VENV / MISAKA_WEB_PYTHON / MISAKA_WEB_TOKEN_FILE / XDG_CONFIG_HOME
+#   ./deploy/install.sh                          # 装到 <repo>/.venv，交互填 token
+#   ./deploy/install.sh --with-misaka            # 同时装上游 misaka（研究面需要）
+#   ./deploy/install.sh --token-stdin            # 从 stdin 读 token：printf %s "$T" | ./deploy/install.sh --token-stdin
+#   ./deploy/install.sh --generate --yes         # 生成新 token 并直接打印一次
+#   ./deploy/install.sh --systemd                # 生成并启用 systemd 单元（需要 root）
+#   ./deploy/install.sh --print-caddy --lan      # 打印内网 Caddy 片段（tls internal）
+#
 # 运维文档：docs/ops.md
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -19,113 +20,53 @@ set -euo pipefail
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="${MISAKA_WEB_VENV:-$REPO_ROOT/.venv}"
 WITH_MISAKA=0
-# 版本区间与 pyproject.toml 的 dev extra 保持一致（那一行是权威定义）
-MISAKA_REQ="misaka[providers]>=0.19.30,<0.21"
+TOKEN_VALUE=""
+TOKEN_FROM_STDIN=0
+FORCE_GENERATE=0
+INSTALL_SYSTEMD=0
+PRINT_CADDY=0
+LAN_MODE=0
+DRY_RUN=0
+ASSUME_YES=0
+# id 在精简环境里可能不存在；whoami 更常见，最后兜底 root（只有 --systemd 会用到这个值）
+RUN_USER="${SUDO_USER:-${USER:-${LOGNAME:-$(whoami 2>/dev/null || echo root)}}}"
+HOST="127.0.0.1"
+PORT="8787"
 
-say()  { echo ""; echo "==> $*"; }
-warn() { echo "WARN: $*" >&2; }
-die()  { echo "ERROR: $*" >&2; exit 1; }
+say()  { printf "\n==> %s\n" "$*"; }
+warn() { printf "WARN: %s\n" "$*" >&2; }
+die()  { printf "ERROR: %s\n" "$*" >&2; exit 1; }
+run()  { if [ "$DRY_RUN" -eq 1 ]; then printf "    [dry-run] %s\n" "$*"; else "$@"; fi; }
 
 usage() {
-  cat <<"USAGE"
-misaka-web 安装 / 升级（幂等）
-
-用法: install.sh [选项]
-  --venv DIR       虚拟环境目录（默认 $MISAKA_WEB_VENV，或 <repo>/.venv）
-  --with-misaka    额外安装上游 misaka[providers]（可选；研究机上通常已有）
-  -h, --help       显示本帮助
-USAGE
+  sed -n "2,18p" "${BASH_SOURCE[0]}" | sed "s/^# \{0,1\}//"
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --venv)        [ "$#" -ge 2 ] || die "--venv 需要一个目录参数"; VENV_DIR="$2"; shift 2 ;;
+    --venv)        [ "$#" -ge 2 ] || die "--venv 需要一个目录"; VENV_DIR="$2"; shift 2 ;;
     --venv=*)      VENV_DIR="${1#--venv=}"; shift ;;
     --with-misaka) WITH_MISAKA=1; shift ;;
+    --token)       [ "$#" -ge 2 ] || die "--token 需要一个值"; TOKEN_VALUE="$2"; shift 2 ;;
+    --token=*)     TOKEN_VALUE="${1#--token=}"; shift ;;
+    --token-stdin) TOKEN_FROM_STDIN=1; shift ;;
+    --generate)    FORCE_GENERATE=1; shift ;;
+    --systemd)     INSTALL_SYSTEMD=1; shift ;;
+    --print-caddy) PRINT_CADDY=1; shift ;;
+    --lan)         LAN_MODE=1; HOST="0.0.0.0"; shift ;;
+    --host)        [ "$#" -ge 2 ] || die "--host 需要一个地址"; HOST="$2"; shift 2 ;;
+    --port)        [ "$#" -ge 2 ] || die "--port 需要一个端口"; PORT="$2"; shift 2 ;;
+    --user)        [ "$#" -ge 2 ] || die "--user 需要一个账号"; RUN_USER="$2"; shift 2 ;;
+    --yes|-y)      ASSUME_YES=1; shift ;;
+    --dry-run)     DRY_RUN=1; shift ;;
     -h|--help)     usage; exit 0 ;;
     *)             usage >&2; die "未知参数: $1" ;;
   esac
 done
 
-[ -n "$VENV_DIR" ] || die "venv 目录为空"
-[ -f "$REPO_ROOT/pyproject.toml" ] || die "找不到 $REPO_ROOT/pyproject.toml；请从仓库内的 deploy/ 目录执行本脚本"
+[ -f "$REPO_ROOT/pyproject.toml" ] || die "找不到 $REPO_ROOT/pyproject.toml"
 
-if [ "$(id -u)" -eq 0 ]; then
-  warn "当前以 root 运行：venv 与 token 将属于 root。生产环境请用研究账号执行（例如 sudo -u misaka ...），"
-  warn "否则 systemd 以 User= 启动时读不到 token（见 docs/ops.md 故障排查表 401 一行）。"
-fi
-
-say "仓库: $REPO_ROOT"
-say "虚拟环境: $VENV_DIR"
-
-# --- 1. 前置检查（只检查，绝不安装） --------------------------------------
-say "检查 Python >= 3.12"
-PYTHON_BIN="${MISAKA_WEB_PYTHON:-}"
-if [ -z "$PYTHON_BIN" ]; then
-  for cand in python3.12 python3; do
-    if command -v "$cand" >/dev/null 2>&1 &&
-       "$cand" -c "import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 12) else 1)" 2>/dev/null; then
-      PYTHON_BIN="$cand"
-      break
-    fi
-  done
-fi
-if [ -z "$PYTHON_BIN" ]; then
-  echo "没找到 Python >= 3.12（pyproject.toml: requires-python >= 3.12）。" >&2
-  echo "本脚本不安装系统包，请自行安装后重跑：" >&2
-  echo "  Debian/Ubuntu: sudo apt install python3.12 python3.12-venv" >&2
-  echo "  其它发行版:    装好 3.12 后 MISAKA_WEB_PYTHON=/path/to/python3.12 $0" >&2
-  exit 1
-fi
-"$PYTHON_BIN" -c "import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 12) else 1)" || die "$PYTHON_BIN 版本低于 3.12"
-"$PYTHON_BIN" -m venv --help >/dev/null 2>&1 || die "$PYTHON_BIN 缺少 venv 模块，请自行安装（Debian/Ubuntu: apt install python3.12-venv）"
-echo "    ok: $("$PYTHON_BIN" -c "import sys; print(sys.version.split()[0])") ($PYTHON_BIN)"
-
-say "检查 git（升级流程依赖它拉代码）"
-if ! command -v git >/dev/null 2>&1; then
-  echo "没找到 git。本脚本不安装系统包，请自行安装（Debian/Ubuntu: sudo apt install git）。" >&2
-  exit 1
-fi
-echo "    ok: $(git --version)"
-
-# --- 2. venv（幂等） ------------------------------------------------------
-VENV_PY="$VENV_DIR/bin/python"
-VENV_PIP="$VENV_DIR/bin/pip"
-if [ -x "$VENV_PY" ]; then
-  say "复用已存在的 venv"
-else
-  say "创建 venv"
-  mkdir -p "$(dirname -- "$VENV_DIR")"
-  "$PYTHON_BIN" -m venv "$VENV_DIR"
-fi
-[ -x "$VENV_PY" ] || die "venv 创建失败：$VENV_PY 不存在"
-if ! "$VENV_PY" -c "import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 12) else 1)"; then
-  die "已存在的 venv 用的是旧 Python；删掉 $VENV_DIR 后重跑本脚本"
-fi
-
-# --- 3. 安装依赖与本包 ----------------------------------------------------
-say "升级 pip（幂等，失败不致命）"
-"$VENV_PIP" install --upgrade pip || warn "pip 升级失败，继续（离线环境可忽略）"
-
-say "安装依赖 + 本包（$REPO_ROOT）"
-"$VENV_PIP" install "$REPO_ROOT"
-# 版本号没变时 pip 会认为"已满足"并跳过重建；离线重装包体本身（--no-deps），
-# 保证 git pull 之后重新执行本脚本能真正换掉已安装的代码。
-"$VENV_PIP" install --force-reinstall --no-deps "$REPO_ROOT"
-
-# --- 4. 可选：上游 misaka[providers] -------------------------------------
-if [ "$WITH_MISAKA" -eq 1 ]; then
-  say "安装上游 misaka[providers]（可选）"
-  if [ -f "$REPO_ROOT/../misaka/pyproject.toml" ]; then
-    echo "    发现本地上游 checkout，从它安装: $REPO_ROOT/../misaka"
-    "$VENV_PIP" install "$REPO_ROOT/../misaka[providers]"
-  else
-    echo "    从索引安装: $MISAKA_REQ"
-    "$VENV_PIP" install "$MISAKA_REQ"
-  fi
-fi
-
-# --- 5. token（幂等：已存在则保留） --------------------------------------
+# --- 0. 目标路径 -----------------------------------------------------------
 if [ -n "${MISAKA_WEB_TOKEN_FILE:-}" ]; then
   TOKEN_FILE="$MISAKA_WEB_TOKEN_FILE"
 elif [ -n "${XDG_CONFIG_HOME:-}" ]; then
@@ -133,71 +74,218 @@ elif [ -n "${XDG_CONFIG_HOME:-}" ]; then
 else
   TOKEN_FILE="$HOME/.config/misaka-web/token"
 fi
-case "$TOKEN_FILE" in
-  "~/"*) TOKEN_FILE="$HOME/${TOKEN_FILE#~/}" ;;
-esac
-TOKEN_DIR="$(dirname -- "$TOKEN_FILE")"
+case "$TOKEN_FILE" in "~/"*) TOKEN_FILE="$HOME/${TOKEN_FILE#~/}" ;; esac
 
-say "token 文件: $TOKEN_FILE"
-mkdir -p "$TOKEN_DIR"
-chmod 700 "$TOKEN_DIR" 2>/dev/null || warn "无法把 $TOKEN_DIR 设为 700，请手动检查权限"
-if [ -s "$TOKEN_FILE" ]; then
-  echo "    已存在，保留原值（内容不打印）"
+say "misaka-web 安装器"
+echo "    仓库:   $REPO_ROOT"
+echo "    venv:   $VENV_DIR"
+echo "    token:  $TOKEN_FILE"
+echo "    监听:   $HOST:$PORT"
+[ "$DRY_RUN" -eq 1 ] && echo "    模式:   dry-run（只打印将执行的命令）"
+
+# --- 1. 前置检查（只检查，不安装） ----------------------------------------
+say "检查 Python >= 3.12"
+PYTHON_BIN="${MISAKA_WEB_PYTHON:-}"
+if [ -z "$PYTHON_BIN" ]; then
+  for candidate in python3.12 python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 &&
+       "$candidate" -c "import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 12) else 1)" 2>/dev/null; then
+      PYTHON_BIN="$candidate"; break
+    fi
+  done
+fi
+[ -n "$PYTHON_BIN" ] || die "没有 Python >= 3.12。本脚本不装系统包：Debian/Ubuntu 用 sudo apt install python3.12 python3.12-venv"
+echo "    ok: $("$PYTHON_BIN" -c "import sys; print(sys.version.split()[0])") ($PYTHON_BIN)"
+
+# --- 2. venv ---------------------------------------------------------------
+say "准备 venv"
+if [ -x "$VENV_DIR/bin/python" ]; then
+  echo "    复用已存在的 venv"
 else
-  # 显式指定落盘位置，避免 token 落到别处；umask 收在子 shell 里。
-  # 输出重定向到 /dev/null：stdout 上的 token 会进 journal / shell history。
-  ( umask 077; MISAKA_WEB_TOKEN_FILE="$TOKEN_FILE" "$VENV_DIR/bin/misaka-web" token >/dev/null )
-  if [ -s "$TOKEN_FILE" ]; then
-    echo "    已生成"
+  run "$PYTHON_BIN" -m venv "$VENV_DIR"
+fi
+# venv 的布局随平台不同：POSIX 是 bin/，Windows 是 Scripts/
+VENV_BIN="$VENV_DIR/bin"
+[ -x "$VENV_BIN/python" ] || { [ -x "$VENV_DIR/Scripts/python.exe" ] && VENV_BIN="$VENV_DIR/Scripts"; }
+VENV_PY="$VENV_BIN/python"
+VENV_PIP="$VENV_BIN/pip"
+if [ "$DRY_RUN" -eq 0 ]; then
+  [ -x "$VENV_PY" ] || die "venv 创建失败：$VENV_PY 不存在"
+  "$VENV_PY" -c "import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 12) else 1)" || die "已存在的 venv 用的是旧 Python，删掉 $VENV_DIR 再试"
+fi
+
+# --- 3. 安装本包装与依赖 ---------------------------------------------------
+EXTRAS=""
+[ "$WITH_MISAKA" -eq 1 ] && EXTRAS="[research]"
+say "安装 misaka-web$EXTRAS（可编辑安装，改代码不用重装）"
+run "$VENV_PY" -m pip install --upgrade pip || warn "pip 升级失败，继续（离线或受限环境可忽略）"
+if [ -f "$REPO_ROOT/../misaka/pyproject.toml" ] && [ "$WITH_MISAKA" -eq 1 ]; then
+  echo "    发现本地上游 checkout，优先用它：$REPO_ROOT/../misaka"
+  run "$VENV_PY" -m pip install -e "$REPO_ROOT/../misaka[providers]"
+fi
+run "$VENV_PY" -m pip install -e "$REPO_ROOT$EXTRAS"
+
+# --- 4. token --------------------------------------------------------------
+say "配置访问 token"
+mkdir -p "$(dirname -- "$TOKEN_FILE")"
+chmod 700 "$(dirname -- "$TOKEN_FILE")" 2>/dev/null || true
+
+read_token_from_stdin() {
+  local value
+  IFS= read -r value || value=""
+  printf "%s" "$value"
+}
+
+generate_token() {
+  "$VENV_PY" -c "import secrets; print(secrets.token_urlsafe(32))"
+}
+
+TOKEN_CREATED=0
+TOKEN_VISIBLE=""
+if [ -s "$TOKEN_FILE" ] && [ "$FORCE_GENERATE" -eq 0 ] && [ -z "$TOKEN_VALUE" ] && [ "$TOKEN_FROM_STDIN" -eq 0 ]; then
+  echo "    已有 token，保留原值（内容不打印）：$TOKEN_FILE"
+  echo "    忘记内容？用 --generate 换一个新的，或直接 cat 这个文件"
+else
+  if [ -n "$TOKEN_VALUE" ]; then
+    NEW_TOKEN="$TOKEN_VALUE"
+  elif [ "$TOKEN_FROM_STDIN" -eq 1 ]; then
+    NEW_TOKEN="$(read_token_from_stdin)"
+    [ -n "$NEW_TOKEN" ] || die "stdin 里没有读到 token"
+  elif [ "$FORCE_GENERATE" -eq 1 ] || [ "$ASSUME_YES" -eq 1 ] || [ ! -t 0 ]; then
+    NEW_TOKEN="$(generate_token)"
+    TOKEN_CREATED=1
   else
-    warn "命令执行成功但 $TOKEN_FILE 不存在；该版本 token 子命令可能写到别处。"
-    warn "请用 "$VENV_DIR/bin/misaka-web" token --help 确认，并把文件放到上述路径、权限 600。"
+    printf "    粘贴你的 token（直接回车＝自动生成一个）："
+    IFS= read -r -s NEW_TOKEN || NEW_TOKEN=""
+    printf "\n"
+    if [ -z "$NEW_TOKEN" ]; then
+      NEW_TOKEN="$(generate_token)"
+      TOKEN_CREATED=1
+    fi
+  fi
+  NEW_TOKEN="$(printf "%s" "$NEW_TOKEN" | tr -d "\r\n" | sed "s/^ *//;s/ *$//")"
+  [ -n "$NEW_TOKEN" ] || die "token 为空"
+  [ "${#NEW_TOKEN}" -ge 16 ] || warn "token 只有 ${#NEW_TOKEN} 个字符，建议至少 16 位（本脚本生成的是 43 位）"
+  if [ "$DRY_RUN" -eq 0 ]; then
+    ( umask 077; printf "%s\n" "$NEW_TOKEN" > "$TOKEN_FILE" )
+    chmod 600 "$TOKEN_FILE" 2>/dev/null || true
+  fi
+  TOKEN_VISIBLE="$NEW_TOKEN"
+  echo "    已写入：$TOKEN_FILE（0600）"
+fi
+
+# --- 5. 自检 ---------------------------------------------------------------
+say "自检（misaka-web doctor）"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "    [dry-run] $VENV_BIN/misaka-web doctor"
+else
+  MISAKA_WEB_HOST="$HOST" MISAKA_WEB_PORT="$PORT" MISAKA_WEB_TOKEN_FILE="$TOKEN_FILE" \
+    "$VENV_BIN/misaka-web" doctor || warn "doctor 有致命项失败，先按上面的 [FAIL] 修掉再启动"
+fi
+
+# --- 6. 可选：systemd ------------------------------------------------------
+if [ "$INSTALL_SYSTEMD" -eq 1 ]; then
+  say "安装 systemd 单元（User=$RUN_USER）"
+  [ "$(id -u 2>/dev/null || echo 1)" -eq 0 ] || die "--systemd 需要 root（sudo ./deploy/install.sh --systemd）"
+  UNIT_SRC="$REPO_ROOT/deploy/systemd/misaka-web.service"
+  UNIT_DST="/etc/systemd/system/misaka-web.service"
+  [ -f "$UNIT_SRC" ] || die "找不到 $UNIT_SRC"
+  HOME_DIR="$("$VENV_PY" -c "import os,pwd;print(pwd.getpwnam("$RUN_USER").pw_dir)")"
+  TOKEN_DIR="$(dirname -- "$TOKEN_FILE")"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "    [dry-run] 用 User=$RUN_USER HOME=$HOME_DIR ExecStart=$VENV_DIR/bin/misaka-web serve 写入 $UNIT_DST"
+  else
+    sed \
+      -e "s|^User=.*|User=$RUN_USER|" \
+      -e "s|^Group=.*|Group=$RUN_USER|" \
+      -e "s|^WorkingDirectory=.*|WorkingDirectory=$REPO_ROOT|" \
+      -e "s|^Environment=HOME=.*|Environment=HOME=$HOME_DIR|" \
+      -e "s|^Environment=MISAKA_WEB_HOST=.*|Environment=MISAKA_WEB_HOST=127.0.0.1|" \
+      -e "s|^Environment=MISAKA_WEB_PORT=.*|Environment=MISAKA_WEB_PORT=$PORT|" \
+      -e "s|^Environment=MISAKA_WEB_TOKEN_FILE=.*|Environment=MISAKA_WEB_TOKEN_FILE=$TOKEN_FILE|" \
+      -e "s|^ExecStart=.*|ExecStart=$VENV_DIR/bin/misaka-web serve|" \
+      -e "s|^ReadWritePaths=.*|ReadWritePaths=$TOKEN_DIR|" \
+      -e "s|^ReadOnlyPaths=.*|ReadOnlyPaths=$HOME_DIR/.misaka|" \
+      "$UNIT_SRC" > "$UNIT_DST"
+    echo "    写入 $UNIT_DST"
+    echo "    检查：systemd-analyze verify $UNIT_DST"
+    systemctl daemon-reload
+    systemctl enable --now misaka-web
+    echo "    已启动：journalctl -u misaka-web -f"
   fi
 fi
-if [ -s "$TOKEN_FILE" ]; then
-  chmod 600 "$TOKEN_FILE" 2>/dev/null || warn "无法把 $TOKEN_FILE 设为 600，请手动检查权限"
+
+# --- 7. 可选：Caddy 片段 ---------------------------------------------------
+if [ "$PRINT_CADDY" -eq 1 ]; then
+  say "Caddy 片段（保存到 /etc/caddy/Caddyfile 后 sudo systemctl reload caddy）"
+  if [ "$LAN_MODE" -eq 1 ]; then
+    SITE="misaka.lan"
+    echo "注意：misaka.lan 需要能解析到本机（路由器 DNS / hosts / Tailscale MagicDNS），"
+    echo "      并且手机要信任 Caddy 的本地根证书（~/.local/share/caddy/pki/authorities/local/root.crt）。"
+  else
+    SITE="misaka.example.com"
+  fi
+  cat <<CADDY
+{
+    local_certs
+}
+
+"$SITE" {
+    tls internal
+    encode {
+        match {
+            not path /api/sessions/*/events
+        }
+        zstd gzip
+    }
+    reverse_proxy 127.0.0.1:$PORT {
+        flush_interval -1
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "no-referrer"
+        -Server
+    }
+}
+CADDY
 fi
 
-# --- 6. 自检 --------------------------------------------------------------
-say "自检"
-if "$VENV_PY" -c "import misaka_web" >/dev/null 2>&1; then
-  echo "    ok: import misaka_web"
+# --- 8. 收尾 ---------------------------------------------------------------
+say "完成"
+LAN_IP=""
+if command -v hostname >/dev/null 2>&1; then
+  LAN_IP="$(hostname -I 2>/dev/null | awk "{print \$1}")" || LAN_IP=""
+fi
+if [ "$HOST" = "0.0.0.0" ]; then
+  echo "    本机访问：  http://127.0.0.1:$PORT/"
+  [ -n "$LAN_IP" ] && echo "    内网访问：  http://$LAN_IP:$PORT/   （手机用这个）"
+  warn "0.0.0.0 意味着内网其它机器可达：明文 HTTP 下 token 会被同网段看到，"
+  warn "      且浏览器不把明文局域网地址当安全上下文（离线壳、通知、剪贴板不可用）。"
+  warn "      内网长期测试建议：保持 127.0.0.1，用 --print-caddy --lan 起一个带 tls internal 的 Caddy。"
 else
-  warn "import misaka_web 失败。若报缺少 misaka，说明还需要上游包："
-  warn "重跑 ./deploy/install.sh --with-misaka，或按 docs/ops.md 的说明处理后端集成。"
+  echo "    访问地址：  http://$HOST:$PORT/"
 fi
-if "$VENV_DIR/bin/misaka-web" --help >/dev/null 2>&1; then
-  echo "    ok: misaka-web --help"
+if [ -n "$TOKEN_VISIBLE" ]; then
+  echo ""
+  echo "    访问 token："
+  echo "      $TOKEN_VISIBLE"
+  echo ""
+  if [ "$TOKEN_CREATED" -eq 1 ]; then
+    echo "    这是自动生成的 token，只显示这一次。请现在就存进密码管理器；"
+    echo "    忘了可以重看：cat $TOKEN_FILE"
+  fi
+  echo "    手机登录时粘贴上面这串即可。"
 else
-  warn "misaka-web --help 未通过（该版本可能没有 --help）；请人工验证 serve 子命令。"
+  echo "    token 已在 $TOKEN_FILE（需要查看：cat $TOKEN_FILE）"
 fi
-
-# --- 7. 需要人工执行的步骤（脚本不改系统） --------------------------------
-cat <<EOF
-
---------------------------------------------------------------------------------
-安装完成。以下步骤需要你手动执行（本脚本不碰系统配置、不改防火墙、不装系统包）：
-
-1) systemd 单元
-     sudo cp "$REPO_ROOT/deploy/systemd/misaka-web.service" /etc/systemd/system/misaka-web.service
-     # 编辑该文件：User= / Group= / HOME / ReadWritePaths= 改成真实运行账号（通常是研究账号）
-     #             ExecStart 改成 $VENV_DIR/bin/misaka-web serve
-     sudo systemctl daemon-reload
-     sudo systemctl enable --now misaka-web
-     journalctl -u misaka-web -f
-
-2) TLS 反代（推荐 Caddy）
-     sudo cp "$REPO_ROOT/deploy/caddy/Caddyfile.example" /etc/caddy/Caddyfile   # 改成你的域名
-     sudo caddy validate --config /etc/caddy/Caddyfile
-     sudo systemctl reload caddy
-
-3) 网络边界
-     misaka-web 只监听 127.0.0.1:8787，对外只暴露 443。防火墙/安全组请自行按需配置
-     （本脚本不修改任何防火墙规则）。
-
-4) 服务器不需要 node
-     前端构建产物随包发布，运行时只跑 Python；不要把 Node.js 装到服务器上。
-
-文档: $REPO_ROOT/docs/ops.md
---------------------------------------------------------------------------------
-EOF
+echo ""
+echo "    启动：  $VENV_DIR/bin/misaka-web serve"
+echo "    自检：  $VENV_DIR/bin/misaka-web doctor"
+echo "    文档：  $REPO_ROOT/docs/ops.md"
+if [ "$WITH_MISAKA" -eq 0 ]; then
+  echo ""
+  echo "    注意：没有装 misaka，会话面可用，研究/来源/起 run 会返回 503。"
+  echo "          需要时重跑：./deploy/install.sh --with-misaka"
+fi
