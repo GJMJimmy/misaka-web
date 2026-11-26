@@ -1838,3 +1838,178 @@ body {
   white-space: pre;
   tab-size: 2;
 }
+
+/* ==================================================================
+   M3 来源与引用（可点引用 / 来源面板 / PDF sheet）
+   ================================================================== */
+
+a.btn {
+  text-decoration: none;
+}
+
+/* ---------- 正文里的引用（React button，不是 innerHTML） ---------- */
+.md__cite {
+  display: inline;
+  margin: 0 1px;
+  padding: 0 4px;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.md__cite--locator,
+.md__cite--path {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.md__cite--path {
+  border-style: solid;
+}
+
+/* 从 code span 升级来的引用：保持等宽，视觉上衔接原来的 <code> */
+.md__cite--code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* 来源面板头部：相对路径最多两行；绝对路径只留在 title 上 */
+.sheet__path--rel {
+  display: -webkit-box;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+@media (hover: hover) {
+  .md__cite:hover {
+    filter: brightness(1.06);
+  }
+}
+
+/* ---------- 来源面板 ---------- */
+.source-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.source-row--missing {
+  background: var(--bg-inset);
+  border-style: dashed;
+  color: var(--fg-muted);
+}
+
+.source-row--highlight {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.source-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-row__name {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.source-row__line {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.source-row__key {
+  flex: none;
+  width: 64px;
+  color: var(--fg-subtle);
+  font-family: var(--font-mono);
+}
+
+.source-row__val {
+  min-width: 0;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.source-row__details {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.page-chip--active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* ---------- PDF sheet ---------- */
+.pdf-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.pdf-toolbar__page {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pdf-toolbar__input {
+  width: 78px;
+  min-height: var(--tap);
+  padding: 0 8px;
+  text-align: center;
+}
+
+.pdf-embed {
+  width: 100%;
+  height: 62vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+
+/* iOS cannot page a PDF inside the app: the sheet shows one decisive action instead. */
+.pdf-ios {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 4px;
+}
+
+.pdf-ios__name {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}

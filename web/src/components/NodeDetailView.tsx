@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { getRunFile, getRunNode, tellRun } from "../api";
+import { getRunNode, tellRun } from "../api";
 import { classifyError, type LoadFailure } from "../errors";
 import { formatBytes, formatRelativeMs } from "../format";
 import type { NodeDetail } from "../types";
 import ConfirmLayer from "./ConfirmLayer";
-import FileViewer from "./FileViewer";
+import SourceBrowser, { type SourceRequest } from "./SourceBrowser";
 import StatusChip from "./StatusChip";
 
 type Props = { runId: string; nodeId: string; onAuthLost: () => void };
@@ -21,9 +21,7 @@ export default function NodeDetailView({ runId, nodeId, onAuthLost }: Props) {
   const [tellText, setTellText] = useState(DEFAULT_TELL);
   const [telling, setTelling] = useState(false);
   const [tellError, setTellError] = useState<string | null>(null);
-  const [file, setFile] = useState<{ name: string; text: string } | null>(null);
-  const [fileLoading, setFileLoading] = useState(false);
-  const [fileError, setFileError] = useState<string | null>(null);
+  const [browser, setBrowser] = useState<SourceRequest | null>(null);
   const [synthesisIndex, setSynthesisIndex] = useState(0);
 
   const load = useCallback(async () => {
@@ -51,24 +49,6 @@ export default function NodeDetailView({ runId, nodeId, onAuthLost }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const openFile = async (name: string) => {
-    setFile({ name, text: "" });
-    setFileLoading(true);
-    setFileError(null);
-    try {
-      const result = await getRunFile(runId, nodeId, name);
-      setFile({ name: result.name, text: result.text });
-    } catch (err) {
-      if (classifyError(err, "读取文件").kind === "unauthorized") {
-        onAuthLost();
-        return;
-      }
-      setFileError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setFileLoading(false);
-    }
-  };
 
   const openTell = () => {
     setTellText(DEFAULT_TELL);
@@ -167,6 +147,9 @@ export default function NodeDetailView({ runId, nodeId, onAuthLost }: Props) {
           <button type="button" className="btn" onClick={() => void load()} disabled={loading}>
             {loading ? "刷新中…" : "刷新"}
           </button>
+          <button type="button" className="btn" onClick={() => setBrowser({})}>
+            来源
+          </button>
           <button
             type="button"
             className="btn btn--primary"
@@ -205,7 +188,7 @@ export default function NodeDetailView({ runId, nodeId, onAuthLost }: Props) {
           <ul className="plain-list">
             {node.files.map((entry) => (
               <li key={entry.name}>
-                <button type="button" className="file-row" onClick={() => void openFile(entry.name)}>
+                <button type="button" className="file-row" onClick={() => setBrowser({ path: entry.name })}>
                   <span className="file-row__name">{entry.name}</span>
                   <span className="file-row__meta">
                     {formatBytes(entry.size)}
@@ -234,7 +217,7 @@ export default function NodeDetailView({ runId, nodeId, onAuthLost }: Props) {
                 className={`btn btn--chip${index === synthesisIndex ? " btn--chip-active" : ""}`}
                 onClick={() => {
                   setSynthesisIndex(index);
-                  void openFile(entry.path);
+                  setBrowser({ path: entry.path });
                 }}
               >
                 v{index + 1}
@@ -326,16 +309,13 @@ export default function NodeDetailView({ runId, nodeId, onAuthLost }: Props) {
         </ConfirmLayer>
       ) : null}
 
-      {file ? (
-        <FileViewer
-          name={file.name}
-          text={file.text}
-          loading={fileLoading}
-          error={fileError}
-          onClose={() => {
-            setFile(null);
-            setFileError(null);
-          }}
+      {browser ? (
+        <SourceBrowser
+          runId={runId}
+          nodeId={nodeId}
+          initial={browser}
+          onClose={() => setBrowser(null)}
+          onAuthLost={onAuthLost}
         />
       ) : null}
     </div>

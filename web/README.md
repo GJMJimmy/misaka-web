@@ -21,13 +21,14 @@ web/
     mock-research.ts    研究面假后端（/api/runs*，三条 run / 三层节点 / plan/cards/synthesis 文本）
     mock-http.ts        mock 共用的 json/error/delay 工具
     merge.ts            delta.entries 合并策略（追加、绝不重排）
-    markdown-parse.ts   Markdown 块级 + 行内解析（纯函数、可在 Node 里自检）
+    markdown-parse.ts   Markdown 块级 + 行内解析 + 引用定位符识别（纯函数、可在 Node 里自检）
     markdown.tsx        Markdown → React 元素（**不用 dangerouslySetInnerHTML**）
     errors.ts           读请求异常归类（503 board_unavailable / 401 / 404 / 422）
     theme.ts / useAppHeight.ts / format.ts
     components/         LoginView / SessionListView / SessionView / MessageList / Composer / Banner / ThemeSwitch
                         Tabs / ResearchListView / RunDetailView / NodeDetailView / StatusChip / ConfirmLayer / FileViewer
                         NewRunSheet（新建研究）/ LogSheet（进程日志）
+                        SourcePanel / SourceBrowser / FileSheet（来源面板与原文）
     styles.css          设计视口 390x844、断点 768/1024、深/浅色、safe-area
 ```
 
@@ -240,7 +241,65 @@ SSE 说明：`EventSource` 不能自定义请求头，所以 `/api/sessions/{id}
 | force 停止 | `r-alpha-2411` 详情 → 停止运行 → 「请求停止并终止进程」 |
 | 日志 | 任一有进程的 run → 查看日志（300 行，含超长行） |
 
-## 已知限制（M0/M1/M2 未做）
+## M3 来源与引用（CONTRACT §3.5）
+
+### 端点对照
+
+| 端点 | 前端位置 |
+|---|---|
+| `GET /api/runs/{id}/sources?node=` | `api.ts:getRunSources` → `SourceBrowser`（→ `SourcePanel`） |
+| `GET /api/runs/{id}/file?path=&node=` | `api.ts:runFileUrl`（`<embed>` / 新标签）与 `api.ts:fetchRunFileText`（markdown / txt） |
+
+入口：**运行详情页** action row 的「来源」（运行级，不带 node）与**节点详情页** action row 的「来源」（带 node）；
+节点页的文件行、合成版本、产物行也都走同一个 sheet。
+
+### 来源面板
+
+每份来源显示：`placed`（文件名在标题，完整路径在行内）、`original`、`sha256` 前 8 位（+ size）、`details`、
+`locators`、页码 chips。`exists=false` 的来源整行灰掉（虚线边框），页码 chips 禁用并写明「清单里有、磁盘上没有」。
+
+- 点页码 chip → 打开该文件到那一页（PDF 走 `#page=n`）。
+- 没有清单（服务端 404）→ 一个可读的 sheet（不是红条）：说明清单在哪生成 + 「重试 / 关闭」。
+
+### 引用怎么变可点（只解析，不猜）
+
+正文里的引用只在 `Markdown` 拿到 `onCitation` 时才渲染成 `<button class="md__cite">`，规则如下：
+
+| 写法 | 行为 |
+|---|---|
+| `doc:<id>#p<n>` | 命中某来源的 `locators` **且该文件存在** → 直接打开第 n 页；命中不了 / 文件缺失 → 只打开来源面板并高亮该 locator（**不猜文件**） |
+| `p.<n>` / `p<n>` | 只打开来源面板并高亮第 n 页（清单里可能有多份来源，猜错比不跳更糟） |
+| `downloads/… nodes/… final/… sources/…` | 直接开文件 sheet（404 → 「这个路径不在产物里（404）」） |
+
+识别是在纯文本 token 上做的（`markdown-parse.ts:findCitations`）：行内代码/代码块里的字符串不会被误判，
+`map42`、`top42` 这种词内的 p+数字也不算；URL 不算相对路径。渲染仍是 React 元素，没有 HTML 注入。
+
+### 文件 sheet
+
+| 文件类型 | 呈现 |
+|---|---|
+| `.pdf` | `<embed type="application/pdf" src="…&path=…#page=n">`（改页码 = 换 key 重挂）+ 工具条：上一页 / 页码输入 / 下一页 / 复制链接 / **在新标签打开** |
+| `.md` | 自写 Markdown 渲染器（引用可点） |
+| `*-SOURCES.md` | 等宽纯文本 + 「打开来源面板」按钮 |
+| 其它文本 | 等宽纯文本 |
+
+- 「在新标签打开」是 iOS Safari 的兜底（iframe/embed 里 PDF 支持差），与 `<embed>` 用同一个 URL。
+- 认证提醒：`<embed>` 与新标签**不能带 Bearer 头**，所以 PDF/文件打开依赖 `POST /api/login` 换来的
+  `mw_session` cookie（与 SSE 同理）；纯 Bearer 场景请让服务端也接受 cookie。
+
+### mock 演示
+
+| 想看什么 | 怎么做 |
+|---|---|
+| 来源面板（3 份：PDF 带 42/118 页、txt 无页码、一份 exists=false） | `r-alpha-2411` → 来源（运行级）；或 `n-api` → 来源（节点级） |
+| PDF 跳页 | 来源面板点「第 42 页」→ sheet 里 `#page=42`（mock 用一个 128 页的极简 PDF） |
+| 引用命中 | 打开 `final/final.md` 里的 `doc:atlas#p42` → 直接跳第 42 页 |
+| 引用命中不了 | 同页的 `doc:gone#p7`（文件缺失）与 `doc:unknown#p9`（清单里没有）→ 只高亮面板 |
+| 页码引用 | `p.42` → 面板高亮第 42 页；`p.7` → 面板打开但不命中来源 |
+| 路径引用 / 404 | `downloads/missing.pdf` → 「这个路径不在产物里」 |
+| 没有清单（404 提示） | `r-beta-2411` 或 `n-md` 的来源按钮 |
+
+## 已知限制（M0/M1/M2/M3 未做）
 
 - **没有 Service Worker**：只提供 manifest + standalone 显示，暂不做离线缓存
   （避免 SW 缓存与静态托管/版本升级互相打架，留到下一里程碑）。
@@ -256,3 +315,9 @@ SSE 说明：`EventSource` 不能自定义请求头，所以 `/api/sessions/{id}
 - 新建研究的表单**不做本地 limits 范围校验**（只校验整数）：越界由服务端 422 原样回显，
   避免前端与服务端两套范围定义漂移。
 - `POST /api/runs` 最长等 25s：界面上只有「启动中…」的状态，没有进度条，也没有取消按钮。
+- **M3 的 PDF 渲染未实测**：`<embed>` 依赖浏览器内建查看器，本会话没有浏览器可用；mock 里用的是
+  自造的多页 PDF（`src/mock-pdf.ts`，结构已用 xref 偏移逐项校验），但「真的能看见第 42 页」要在浏览器里确认。
+- mock 的 `/file` **不实现 Range（206）**：真实后端要求支持，前端只用它做整文件展示与 `#page` 跳转，不依赖 Range。
+- 会话视图（`MessageList`）里的文本**没有**引用跳转：那里没有 run 上下文，硬猜 run 不划算；
+  引用可点只在「有 run 的文件 sheet」里生效。
+- 来源面板不做搜索/过滤（`details` 原样列出）；来源很多时只靠滚动。

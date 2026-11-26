@@ -110,9 +110,9 @@ def _seed_board(home: "pathlib.Path", workspace: "pathlib.Path", owner_session_i
         upstream.root(con, second["id"])  # create() already plants the root node
         con.commit()
 
-        plan = "# 研究计划\n\n## 问题的两种读法\n\n一是财政弹性，二是记账口径。依据见 `doc:1a2b3c4d#p2`，另参 p.3。\n\n## 覆盖表\n\n| 子问题 | 卡片 |\n|---|---|\n| 捐输进项 | c1 |\n| 折色比例 | —（空白即缺口） |\n\n## 分工\n\n- Sister 10032：清代财政与捐输制度，材料在 `downloads/zhenzai-v3.pdf`。\n"
-        card = "# 卡片 c1\n\n- 声明：捐输进项在灾年反而上升。\n- 类型：事实\n- 依据：`doc:1a2b3c4d#p2`，字符偏移 1180\n- 引文：「是岁捐输倍于常年。」\n"
-        synthesis = "# 结论（第 1 版）\n\n三条线索互相冲突（`doc:1a2b3c4d#p3`）。所谓弹性，可能只是记账口径造成的幻觉。\n\n## 未采纳的方向\n\n税关记录与账册不同源，需要另开节点。\n"
+        plan = "# 研究计划\n\n## 问题的两种读法\n\n一是财政弹性，二是记账口径。依据见 doc:1a2b3c4d#p2，另参 p.3。\n\n## 覆盖表\n\n| 子问题 | 卡片 |\n|---|---|\n| 捐输进项 | c1 |\n| 折色比例 | —（空白即缺口） |\n\n## 分工\n\n- Sister 10032：清代财政与捐输制度，材料在 `downloads/zhenzai-v3.pdf`。\n"
+        card = "# 卡片 c1\n\n- 声明：捐输进项在灾年反而上升。\n- 类型：事实\n- 依据：doc:1a2b3c4d#p2，字符偏移 1180\n- 引文：「是岁捐输倍于常年。」\n"
+        synthesis = "# 结论（第 1 版）\n\n三条线索互相冲突（doc:1a2b3c4d#p3，另见 `doc:1a2b3c4d#p2`）。所谓弹性，可能只是记账口径造成的幻觉。\n\n## 未采纳的方向\n\n税关记录与账册不同源，需要另开节点。\n"
         sources_md = (
             "# Sources — 庚子赈灾账册与地方财政弹性\n\n"
             "Files gathered for this product.\n\n## Products\n\n"

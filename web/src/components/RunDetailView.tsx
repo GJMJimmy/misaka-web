@@ -20,6 +20,7 @@ import {
 } from "../types";
 import ConfirmLayer from "./ConfirmLayer";
 import LogSheet from "./LogSheet";
+import SourceBrowser, { type SourceRequest } from "./SourceBrowser";
 import StatusChip from "./StatusChip";
 
 type Props = {
@@ -69,6 +70,7 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost, flash, on
   const [logError, setLogError] = useState<string | null>(null);
   const [log, setLog] = useState<{ path: string; text: string }>({ path: "", text: "" });
   const [mockProcess, setMockProcess] = useState<MockProcessMode>("default");
+  const [browser, setBrowser] = useState<SourceRequest | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -330,6 +332,9 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost, flash, on
           <button type="button" className="btn" onClick={openLimits}>
             调整 limits
           </button>
+          <button type="button" className="btn" onClick={() => setBrowser({})}>
+            来源
+          </button>
           <button
             type="button"
             className="btn btn--danger"
@@ -581,6 +586,16 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost, flash, on
             ))}
           </div>
         </ConfirmLayer>
+      ) : null}
+
+      {browser ? (
+        <SourceBrowser
+          runId={run.id}
+          nodeId={null}
+          initial={browser}
+          onClose={() => setBrowser(null)}
+          onAuthLost={onAuthLost}
+        />
       ) : null}
 
       {logOpen ? (

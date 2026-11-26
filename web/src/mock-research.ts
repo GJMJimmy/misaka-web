@@ -1,4 +1,5 @@
 import { delay, errorResponse, jsonResponse, parseBody } from "./mock-http";
+import { buildPdf } from "./mock-pdf";
 import {
   EDITABLE_LIMITS,
   type NodeDetail,
@@ -6,6 +7,8 @@ import {
   type ProcessInfo,
   type RunDetail,
   type RunSummary,
+  type Source,
+  type SourceList,
 } from "./types";
 
 /**
@@ -796,6 +799,229 @@ function normalizeName(raw: string): string {
   return raw.replace(/\\/g, "/").replace(/^\.\//, "").trim();
 }
 
+/* ------------------------------------------------------------------ 来源与引用（§3.5） */
+
+type MockFileEntry = { mime: string; text?: string; pdfPages?: number };
+
+const NOTES_TEXT = [
+  "bridge-notes.txt —— 手动记的桥接笔记（无页码）",
+  "",
+  "- 断线语义：见 doc:atlas#p118 第 118 页的时序图；p.42 是它的前半段。",
+  "- 对照文件：downloads/bridge-notes.txt 与 sources/atlas-of-agentic-research.pdf 都在清单里。",
+  "- 故意在清单里找不到的定位符：doc:unknown#p9（点它应该只打开来源面板并高亮，不要猜文件）。",
+  "- 故意不在清单里的页码：p.7（点它只打开面板，不猜来源）。",
+].join("\n");
+
+const FINAL_MD = [
+  "# 最终产物：MISAKA WebUI 研究驾驶舱",
+  "",
+  "## 结论",
+  "1. 审批就是对话（CONTRACT §3.2），界面只负责把话投递到位。",
+  "2. 断线语义：since 游标由服务端持有，见 doc:atlas#p118。",
+  "3. 移动端 390px 下不允许页面横向滚动。",
+  "",
+  "## 引用检查表",
+  "",
+  "| 引用 | 期望行为 |",
+  "| --- | --- |",
+  "| doc:atlas#p42 | 直接打开 PDF 第 42 页 |",
+  "| p.42 | 只打开来源面板并高亮第 42 页 |",
+  "| p.7 | 清单里没有这页 → 面板打开但不高亮来源 |",
+  "| downloads/missing.pdf | 提示「这个路径不在产物里」 |",
+  "",
+  "## 原文",
+  "- 完整清单：final/sources/bridge-notes.txt",
+  "- 正文引用来自 doc:atlas#p42 与 doc:gone#p7（后者磁盘上已缺失）。",
+].join("\n");
+
+const DRAFT_MD = [
+  "# 综合草案",
+  "",
+  "草案只说结论与出处，不重复原文：断线重放窗口见 doc:atlas#p42。",
+].join("\n");
+
+const QUESTION_MD = [
+  "# 研究问题",
+  "",
+  "MISAKA WebUI 的 M1 研究驾驶舱：怎样在不加任何前端依赖的前提下把看板搬上手机？",
+].join("\n");
+
+const RUN_MANIFEST_TEXT = [
+  "# SOURCES — r-alpha-2411（等宽纯文本，供人工核对）",
+  "",
+  "## sources/atlas-of-agentic-research.pdf",
+  "original: downloads/atlas-of-agentic-research.pdf",
+  "sha256: 9f2c8e1ab7d4c0f3…（前 8 位 9f2c8e1a）",
+  "locators: doc:atlas#p42, doc:atlas#p118",
+  "pages: 42, 118",
+  "size: 4823111",
+  "",
+  "## sources/bridge-notes.txt",
+  "original: downloads/bridge-notes.txt",
+  "sha256: 1a77b0c3de52…",
+  "pages: —",
+  "",
+  "## sources/removed-paper.pdf",
+  "original: downloads/removed-paper.pdf",
+  "sha256: —",
+  "note: 清单里有、磁盘上没有（exists=false）",
+].join("\n");
+
+const NODE_MANIFEST_TEXT = [
+  "# SOURCES — n-api（等宽纯文本）",
+  "",
+  "## sources/atlas-of-agentic-research.pdf",
+  "original: downloads/atlas-of-agentic-research.pdf",
+  "locators: doc:atlas#p42, doc:atlas#p118",
+  "pages: 42, 118",
+  "",
+  "## sources/bridge-notes.txt",
+  "original: downloads/bridge-notes.txt",
+  "pages: —",
+  "",
+  "## sources/removed-paper.pdf",
+  "note: 清单里有、磁盘上没有",
+].join("\n");
+
+const NODE_SYNTH_MD = [
+  "# API 面结论 v2（带引用）",
+  "",
+  "## 结论",
+  "- 投递 ≠ 开始，成功后要回读 RunDetail.nodes[].status（见 doc:atlas#p42）。",
+  "- 列表页的 503 必须有专门分支，不许落到通用红条。",
+  "",
+  "## 依据",
+  "> 摘录自 doc:atlas#p118 第 118 页：客户端只保存 stream_cursor。",
+  "",
+  "补充：p.42 与 downloads/bridge-notes.txt 也能点开对照。",
+  "",
+  "## 反引号形式（上游 manifest 的写法，也要可点）",
+  "- 可以被点开：`doc:atlas#p118`、`p.42`、`final/sources/bridge-notes.txt`。",
+  "- 夹带其它内容的 code span 保持原样：`p.42, 见图`、`doc:atlas#p3 见附表`。",
+  "- 普通代码路径不是引用：`src/main.ts`、`npm run build`。",
+].join("\n");
+
+const PDF_NAME = "atlas-of-agentic-research.pdf";
+
+const RUN_FILES: Record<string, MockFileEntry> = {
+  "final/r-alpha-2411-SOURCES.md": { mime: "text/plain; charset=utf-8", text: RUN_MANIFEST_TEXT },
+  "final/final.md": { mime: "text/markdown; charset=utf-8", text: FINAL_MD },
+  "final/draft.md": { mime: "text/markdown; charset=utf-8", text: DRAFT_MD },
+  "final/question.md": { mime: "text/markdown; charset=utf-8", text: QUESTION_MD },
+  [`final/sources/${PDF_NAME}`]: { mime: "application/pdf", pdfPages: 128 },
+  "final/sources/bridge-notes.txt": { mime: "text/plain; charset=utf-8", text: NOTES_TEXT },
+};
+
+const NODE_FILES: Record<string, Record<string, MockFileEntry>> = {
+  "n-api": {
+    "synthesis/v2.md": { mime: "text/markdown; charset=utf-8", text: NODE_SYNTH_MD },
+    "sources/SOURCES.md": { mime: "text/plain; charset=utf-8", text: NODE_MANIFEST_TEXT },
+    [`sources/${PDF_NAME}`]: { mime: "application/pdf", pdfPages: 128 },
+    "sources/bridge-notes.txt": { mime: "text/plain; charset=utf-8", text: NOTES_TEXT },
+  },
+  "n-root": {
+    "synthesis/v1.md": { mime: "text/markdown; charset=utf-8", text: FINAL_MD },
+  },
+};
+
+const ATLAS: Source = {
+  placed: "",
+  original: "downloads/atlas-of-agentic-research.pdf",
+  sha256: "9f2c8e1ab7d4c0f3a5b6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8",
+  details: ["PDF · 128 页", "抓取于 2025-11-20"],
+  locators: ["doc:atlas#p42", "doc:atlas#p118"],
+  pages: [42, 118],
+  exists: true,
+  size: 4823111,
+};
+
+const BRIDGE: Source = {
+  placed: "",
+  original: "downloads/bridge-notes.txt",
+  sha256: "1a77b0c3de5214f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6",
+  details: ["UTF-8 笔记 · 无页码", "手工维护"],
+  locators: [],
+  pages: [],
+  exists: true,
+  size: 1820,
+};
+
+const REMOVED: Source = {
+  placed: "",
+  original: "downloads/removed-paper.pdf",
+  sha256: null,
+  details: ["清单里有、磁盘上没有", "抓取时 404"],
+  locators: ["doc:gone#p7"],
+  pages: [7],
+  exists: false,
+  size: null,
+};
+
+function sourceSet(runId: string, nodeId: string | null): SourceList | null {
+  if (runId !== "r-alpha-2411") return null;
+
+  if (nodeId === null) {
+    return {
+      path: "final/r-alpha-2411-SOURCES.md",
+      node_id: null,
+      products: [
+        { path: "final/question.md", title: "研究问题", kind: "question" },
+        { path: "final/draft.md", title: "综合草案", kind: "draft" },
+        { path: "final/final.md", title: "最终产物", kind: "final" },
+      ],
+      sources: [
+        { ...ATLAS, placed: `final/sources/${PDF_NAME}` },
+        { ...BRIDGE, placed: "final/sources/bridge-notes.txt" },
+        { ...REMOVED, placed: "final/sources/removed-paper.pdf" },
+      ],
+    };
+  }
+
+  if (nodeId === "n-api") {
+    return {
+      path: "sources/SOURCES.md",
+      node_id: "n-api",
+      products: [
+        { path: "synthesis/v2.md", title: "API 合成 v2（修订）", kind: "synthesis" },
+        { path: "plan.md", title: "计划", kind: "plan" },
+      ],
+      sources: [
+        { ...ATLAS, placed: `sources/${PDF_NAME}` },
+        { ...BRIDGE, placed: "sources/bridge-notes.txt" },
+        { ...REMOVED, placed: "sources/removed-paper.pdf" },
+      ],
+    };
+  }
+
+  return null;
+}
+
+function fileResponse(entry: MockFileEntry, name: string): Response {
+  const filename = name.split("/").pop() ?? name;
+  if (entry.mime === "application/pdf") {
+    const bytes = buildPdf(entry.pdfPages ?? 1);
+    const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Length": String(bytes.byteLength),
+        "Cache-Control": "no-store",
+        "Accept-Ranges": "none",
+      },
+    });
+  }
+  return new Response(entry.text ?? "", {
+    status: 200,
+    headers: {
+      "Content-Type": entry.mime,
+      "Content-Disposition": `inline; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 /* ------------------------------------------------------------------ 路由 */
 
 export async function handleResearch(
@@ -913,6 +1139,56 @@ export async function handleResearch(
       for (const item of PENDING.splice(0)) store.push(item);
     }
     return jsonResponse({ runs: data().map(toSummary) });
+  }
+
+  const sourcesMatch = /^\/api\/runs\/([^/]+)\/sources$/.exec(path);
+  if (sourcesMatch && method === "GET") {
+    const runId = decodeURIComponent(sourcesMatch[1]);
+    const run = data().find((item) => item.id === runId);
+    if (!run) return errorResponse(404, "not_found", `运行不存在：${runId}`);
+    const nodeId = search.get("node");
+    const list = sourceSet(runId, nodeId);
+    if (!list) {
+      return errorResponse(
+        404,
+        "not_found",
+        nodeId
+          ? `没有来源清单：节点 ${nodeId} 的 sources/SOURCES.md 还没生成。`
+          : "没有来源清单：final/*-SOURCES.md 还没生成（研究还没跑完）。",
+      );
+    }
+    return jsonResponse(list);
+  }
+
+  const runFileMatch = /^\/api\/runs\/([^/]+)\/file$/.exec(path);
+  if (runFileMatch && method === "GET") {
+    const runId = decodeURIComponent(runFileMatch[1]);
+    const run = data().find((item) => item.id === runId);
+    if (!run) return errorResponse(404, "not_found", `运行不存在：${runId}`);
+    const nodeId = search.get("node");
+    const rawPath = search.get("path") ?? "";
+    const name = normalizeName(rawPath);
+    if (name === "" || name.startsWith("/") || name.includes("..")) {
+      return errorResponse(
+        422,
+        "invalid_request",
+        `路径越界：path 必须相对节点目录（带 node）或运行 workspace（收到「${rawPath}」）。`,
+      );
+    }
+    const entry = nodeId ? NODE_FILES[nodeId]?.[name] : RUN_FILES[name];
+    if (entry) return fileResponse(entry, name);
+    if (nodeId) {
+      const target = run.nodes.find((item) => item.id === nodeId);
+      const existing = target?.files.find((file) => file.name === name);
+      if (existing) {
+        return fileResponse({ mime: "text/markdown; charset=utf-8", text: existing.text }, name);
+      }
+    }
+    return errorResponse(
+      404,
+      "not_found",
+      `这个路径不在产物里：${nodeId ?? "run"}/${name}`,
+    );
   }
 
   const fileMatch = /^\/api\/runs\/([^/]+)\/nodes\/([^/]+)\/file$/.exec(path);

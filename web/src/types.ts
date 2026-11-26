@@ -168,6 +168,32 @@ export type StopRunResponse = {
   terminated?: { ok: boolean; pid: number } | null;
 };
 
+/* ------------------------------------------------------- M3 来源与引用（§3.5） */
+
+export type RunProductRef = { path: string; title: string; kind: string };
+
+export type Source = {
+  /** sources/xxx.pdf —— 相对 SOURCES.md 所在目录。 */
+  placed: string;
+  /** downloads/xxx.pdf 或 http(s) URL。 */
+  original: string;
+  sha256: string | null;
+  details: string[];
+  /** doc:<id>#p<n> 形式的定位符。 */
+  locators: string[];
+  /** 从定位符解析出的页码，升序。 */
+  pages: number[];
+  exists: boolean;
+  size: number | null;
+};
+
+export type SourceList = {
+  path: string;
+  node_id: string | null;
+  products: RunProductRef[];
+  sources: Source[];
+};
+
 /** limits 里允许前端改的四个整数（CONTRACT §3.1）。 */
 export const EDITABLE_LIMITS = ["sister_parallel", "parallel", "max_followups", "max_revisions"] as const;
 export type EditableLimitKey = (typeof EDITABLE_LIMITS)[number];

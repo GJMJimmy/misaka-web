@@ -5,12 +5,19 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬�
 **M0（已交付）**：token 登录 → 会话列表 → 单会话实时流（SSE 增量）→ 发消息 / 暂停 / 恢复。
 **M1（已交付）**：研究列表 → 运行详情（节点按 depth 分组、limits、停止）→ 节点页（tasks / files / syntheses）→ 手写 Markdown 渲染 → **审批即对话**（把「同意」发给该节点的 Last Order）。
 **M2（已交付）**：在手机上**新建研究**（九参数中的六个 + 诊断）→ 托管 `misaka research` 子进程 → 进程区块（pid / kind / alive / 日志）→ 查看日志 → 恢复运行 → 双档停止（仅请求停止 / 请求停止并终止进程）。
+**M3（已交付）**：来源面板（`SOURCES.md` 解析出的 placed / original / sha256 / 定位符 / 页码）→ 正文引用可点（`doc:<id>#p<n>` 精确命中才跳，否则只高亮不猜）→ 文件 sheet 用浏览器内建 PDF 查看器 + `#page=` + 新标签兜底 → `/file` 支持 Range（206）。
 
 | 会话流式 | 研究列表 | 运行详情 | 节点 Markdown | 审批二次确认 |
 |---|---|---|---|---|
 | ![流式](docs/screens/mobile-streaming.png) | ![研究](docs/screens/mobile-runs.png) | ![运行](docs/screens/mobile-run-detail.png) | ![节点](docs/screens/mobile-node-markdown.png) | ![审批](docs/screens/mobile-approve.png) |
 
 | 新建研究 | 进程区块 | 双档停止 |
+|---|---|---|
+| ![新建](docs/screens/mobile-new-run.png) | ![进程](docs/screens/mobile-run-process.png) | ![停止](docs/screens/mobile-stop-confirm.png) |
+
+| 来源面板 | 引用跳转（PDF 第 3 页） |
+|---|---|
+| ![来源](docs/screens/mobile-sources.png) | ![跳转](docs/screens/mobile-citation-jump.png) |
 |---|---|---|
 | ![新建](docs/screens/mobile-new-run.png) | ![进程](docs/screens/mobile-run-process.png) | ![停止](docs/screens/mobile-stop-confirm.png) |
 
@@ -22,7 +29,7 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬�
 手机/平板 PWA --HTTPS--> Caddy --127.0.0.1:8787--> misaka-web
   |-- 控制 socket（snapshot / input / pause / resume）--> 会话属主进程
   |-- 只读 ~/.misaka（catalog / board.db）
-  |-- 写：仅 stop / limits（上游动词）+ 审计 audit.jsonl
+  |-- 产物文件（只读，realpath 白名单，支持 Range）
   +-- 包内 static/（构建好的前端，服务器不装 node）
 ```
 
@@ -35,7 +42,7 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'          # 研究面需要 misaka 在同一环境里
 python -m misaka_web token       # 生成 token（0600）
 python -m misaka_web serve       # 127.0.0.1:8787
-pytest -q                        # 53 项：认证/协议/看板/审批/审计/进程托管
+pytest -q                        # 62 项：认证/协议/看板/审批/审计/进程托管/来源与 Range
 ```
 
 没有真实 MISAKA 运行也能看完整界面：

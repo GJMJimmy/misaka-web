@@ -17,6 +17,65 @@ export type InlineToken =
 const INLINE_RE =
   /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(~~[^~\n]+~~)|(\[[^\]\n]*\]\([^)\n]*\))|(\*[^*\n]+\*)|(_[^_\n]+_)/g;
 
+/* ------------------------------------------------------------------ M3 引用 */
+
+/**
+ * 正文里可跳转的引用（CONTRACT §3.5）。只做"长得像引用"的识别，
+ * 能不能真的跳由上层用 sources 决定 —— 猜文件比不跳更糟，所以这里不下判断。
+ */
+export type CitationSpan =
+  | { kind: "locator"; text: string; locator: string; page: number }
+  | { kind: "page"; text: string; page: number }
+  | { kind: "path"; text: string; path: string };
+
+export type CitationHit = { start: number; end: number; span: CitationSpan };
+
+const CITE_RE =
+  /doc:[A-Za-z0-9._:-]+#p\d{1,5}|p\.\d{1,5}|\bp\d{1,5}\b|(?:downloads|nodes|final|sources)\/(?:[^\s)`'"”，。；;：:]+)/g;
+
+const TRAILING_PUNCT = /[.,;:，。；：、"'”’)\]]+$/;
+
+export function findCitations(text: string): CitationHit[] {
+  const hits: CitationHit[] = [];
+  CITE_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = CITE_RE.exec(text)) !== null) {
+    const raw = match[0];
+    const trimmed = raw.replace(TRAILING_PUNCT, "");
+    if (trimmed === "") continue;
+
+    let span: CitationSpan | null = null;
+    if (trimmed.startsWith("doc:")) {
+      const page = Number.parseInt(trimmed.slice(trimmed.lastIndexOf("#p") + 2), 10);
+      if (Number.isFinite(page)) span = { kind: "locator", text: trimmed, locator: trimmed, page };
+    } else if (/^p\.?\d+$/.test(trimmed)) {
+      const page = Number.parseInt(trimmed.replace(/^p\.?/, ""), 10);
+      if (Number.isFinite(page)) span = { kind: "page", text: trimmed, page };
+    } else {
+      span = { kind: "path", text: trimmed, path: trimmed };
+    }
+
+    if (!span) continue;
+    hits.push({ start: match.index, end: match.index + trimmed.length, span });
+  }
+
+  return hits;
+}
+
+/**
+ * 整段就是一个引用时返回它；`p.42, 见图` 这种夹带其它内容的返回 null。
+ * 只复用 findCitations 的语义（含 downloads/nodes/final/sources 的 path 白名单），不放宽任何前缀。
+ * 用途：反引号 code span 里整段就是一个定位符时，按引用按钮渲染。
+ */
+export function matchWholeCitation(text: string): CitationSpan | null {
+  const hits = findCitations(text);
+  if (hits.length !== 1) return null;
+  const hit = hits[0];
+  if (hit.start !== 0 || hit.end !== text.length) return null;
+  return hit.span;
+}
+
 export function tokenizeInline(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
   let cursor = 0;

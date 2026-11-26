@@ -6,11 +6,11 @@ import type {
   NodeDetail,
   ResumeRunResponse,
   RunDetail,
-  RunFile,
   RunLog,
   RunSummary,
   Session,
   Snapshot,
+  SourceList,
   StopRunResponse,
 } from "./types";
 
@@ -201,11 +201,44 @@ export async function getRunNode(runId: string, nodeId: string): Promise<NodeDet
   );
 }
 
-/** GET /api/runs/{run_id}/nodes/{node_id}/file?name=… —— 越界由服务端 422。 */
-export async function getRunFile(runId: string, nodeId: string, name: string): Promise<RunFile> {
-  return requestJson<RunFile>(
-    `/api/runs/${encodeURIComponent(runId)}/nodes/${encodeURIComponent(nodeId)}/file?name=${encodeURIComponent(name)}`,
-  );
+/* ------------------------------------------------------- M3 来源与引用（§3.5） */
+
+/** GET /api/runs/{run_id}/sources?node=… —— 没有清单时服务端 404。 */
+export async function getRunSources(runId: string, nodeId?: string | null): Promise<SourceList> {
+  const base = `/api/runs/${encodeURIComponent(runId)}/sources`;
+  return requestJson<SourceList>(nodeId ? `${base}?node=${encodeURIComponent(nodeId)}` : base);
+}
+
+/**
+ * GET /api/runs/{run_id}/file?path=<rel>&node=<node_id> 的绝对 URL。
+ * 页面内 <embed> 与新标签打开都用它：path 相对节点目录（带 node）或运行 workspace。
+ */
+export function runFileUrl(runId: string, path: string, nodeId?: string | null): string {
+  const query = `path=${encodeURIComponent(path)}${nodeId ? `&node=${encodeURIComponent(nodeId)}` : ""}`;
+  return apiUrl(`/api/runs/${encodeURIComponent(runId)}/file?${query}`);
+}
+
+/** 同一端点的文本读取（markdown / txt / SOURCES.md）。404 = 这个路径不在产物里。 */
+export async function fetchRunFileText(
+  runId: string,
+  path: string,
+  nodeId?: string | null,
+): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(runFileUrl(runId, path, nodeId), {
+      headers: { Accept: "text/plain, text/markdown, */*", ...authHeader() },
+      credentials: "include",
+    });
+  } catch (err) {
+    throw new ApiError(
+      0,
+      "network_error",
+      `无法连接后端：${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (!res.ok) throw await toApiError(res);
+  return res.text();
 }
 
 /** POST /api/runs/{run_id}/tell —— 审批就是对话：发一句话给节点的 Last Order。 */
