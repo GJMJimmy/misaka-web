@@ -8,6 +8,7 @@ here are the ones upstream already exposes as verbs (stop, limits).
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -101,6 +102,69 @@ def _node_rows(con: sqlite3.Connection, modules: dict[str, Any], run: dict[str, 
             "syntheses": len(views.syntheses(con, run, node)),
         })
     return rows
+
+
+def _session_ids_of(path: Any) -> set[str]:
+    """Every id a transcript file answers to: its name, and the id in its header line.
+
+    MISAKA names transcripts "<timestamp>_<id>.jsonl"; a hand-made or imported file may not.
+    """
+    ids: set[str] = set()
+    name = os.path.basename(str(path or ""))
+    stem = name[:-6] if name.endswith(".jsonl") else name
+    if stem:
+        ids.add(stem.rsplit("_", 1)[-1])
+    try:
+        with open(str(path), "r", encoding="utf-8", errors="replace") as handle:
+            header = json.loads(handle.readline() or "{}")
+        if isinstance(header, dict) and isinstance(header.get("id"), str):
+            ids.add(header["id"])
+    except (OSError, ValueError):
+        pass
+    return ids
+
+
+def session_run_map() -> dict[str, dict[str, Any]]:
+    """session id → the run (and node) whose conversation it is.
+
+    The board is the only place that knows this: a node's Last Order session file is recorded
+    per node, and the root conversation is the run's root_session.
+    """
+    try:
+        modules = _research()
+    except Exception:  # noqa: BLE001 - no MISAKA means no runs to map
+        return {}
+    runs, planner = modules["runs"], modules["planner"]
+    mapping: dict[str, dict[str, Any]] = {}
+    try:
+        with connect() as con:
+            for run in runs.listing(con):
+                root = run.get("root_session")
+                if root:
+                    root_node = runs.root(con, run["id"])
+                    root_id = root_node["id"] if root_node else None
+                    for session_id in _session_ids_of(root):
+                        mapping.setdefault(session_id, {"run_id": run["id"], "node_id": root_id})
+                for node in runs.nodes(con, run["id"]):
+                    paths = {node.get("session_file")}
+                    try:
+                        paths.add(planner.lo_session_file(run, node))
+                    except Exception:  # noqa: BLE001
+                        pass
+                    for value in paths:
+                        if not value:
+                            continue
+                        target = {"run_id": run["id"],
+                                  "node_id": None if runs.is_root(node) else node["id"]}
+                        for session_id in _session_ids_of(value):
+                            mapping.setdefault(session_id, target)
+    except Exception:  # noqa: BLE001 - a broken board must not hide the sessions
+        return mapping
+    return mapping
+
+
+def run_for_session(session_id: str) -> dict[str, Any] | None:
+    return session_run_map().get(session_id)
 
 
 def list_runs() -> list[dict[str, Any]]:
@@ -319,10 +383,27 @@ def resolve_file(run_id: str, path: str, *, node_id: str | None = None) -> str:
     return target
 
 
+def _final_manifest(workspace: str) -> dict[str, Any] | None:
+    """The newest ``final/*-SOURCES.md``, or None when the run has not written one."""
+    from . import sources as manifests
+
+    final = os.path.join(workspace, "final")
+    if not os.path.isdir(final):
+        return None
+    candidates = sorted(name for name in os.listdir(final) if name.endswith("-SOURCES.md"))
+    if not candidates:
+        return None
+    return manifests.read_manifest_path(os.path.join(final, candidates[-1]))
+
+
 def sources(run_id: str, *, node_id: str | None = None) -> dict[str, Any]:
     """The SOURCES manifest of one node, or of the run's final report when no node is named."""
     from . import sources as manifests
 
+    final = ""
+    candidates: list[str] = []
+    root_folder: str | None = None
+    workspace = ""
     with connect() as con:
         run, modules = _load(con, run_id)
         workspace = run["workspace"]
@@ -332,17 +413,26 @@ def sources(run_id: str, *, node_id: str | None = None) -> dict[str, Any]:
                 raise NodeNotFound(node_id)
             folder = os.path.join(workspace, modules["runs"].node_dir(node_id))
         else:
+            folder = None
             final = os.path.join(workspace, "final")
             candidates = sorted(
                 (name for name in os.listdir(final) if name.endswith("-SOURCES.md"))
                 if os.path.isdir(final) else [],
             )
-            if not candidates:
+            root_node = modules["runs"].root(con, run_id)
+            if root_node is not None:
+                root_folder = os.path.join(workspace, modules["runs"].node_dir(root_node["id"]))
+            if not candidates and not root_folder:
                 raise FileNotFoundError("This run has no final SOURCES.md yet.")
-            folder = None
     parsed = manifests.read_manifest(folder) if folder else None
-    if parsed is None and folder is None:
+    if parsed is None and folder is None and candidates:
         parsed = manifests.read_manifest_path(os.path.join(final, candidates[-1]))
+    if parsed is None and folder is not None:
+        # a node that never wrote its own list still has the run's final one
+        parsed = _final_manifest(workspace)
+    if parsed is None and folder is None and root_folder:
+        # ...and the other way round: no final list yet, so the root node's list it is
+        parsed = manifests.read_manifest(root_folder)
     if parsed is None:
         raise FileNotFoundError("This node has no SOURCES.md yet.")
     manifest_dir = os.path.dirname(parsed["path"])

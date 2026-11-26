@@ -118,15 +118,33 @@ def create_app() -> FastAPI:
 
     @app.get("/api/sessions", dependencies=[Depends(auth.require_auth)])
     async def sessions() -> dict[str, Any]:
-        return {"sessions": [record.as_api() for record in catalog.load_records()]}
+        from ..bridge import runs as board
+
+        owners = board.session_run_map()
+        items = []
+        for record in catalog.load_records():
+            item = record.as_api()
+            owner = owners.get(record.id)
+            item["run_id"] = (owner or {}).get("run_id")
+            item["node_id"] = (owner or {}).get("node_id")
+            items.append(item)
+        return {"sessions": items}
 
     @app.get("/api/sessions/{session_id}", dependencies=[Depends(auth.require_auth)])
     async def session_snapshot(session_id: str) -> dict[str, Any]:
         record = _record(session_id)
         try:
-            return await control.snapshot(record)
+            snapshot = await control.snapshot(record)
         except control.ControlError as error:
             _fail(502, str(error), code=error.code)
+            raise
+        # which run (and node) owns this conversation — the source panel needs it
+        from ..bridge import runs as board
+
+        owner = board.run_for_session(session_id) or {}
+        snapshot["run_id"] = owner.get("run_id")
+        snapshot["node_id"] = owner.get("node_id")
+        return snapshot
 
     @app.post("/api/sessions/{session_id}/input", dependencies=[Depends(auth.require_auth)])
     async def session_input(session_id: str, body: InputBody) -> dict[str, Any]:
@@ -190,6 +208,13 @@ async def _stream(record: catalog.SessionRecord, request: Request) -> AsyncItera
     except control.ControlError as error:
         yield _sse("error", {"code": error.code, "message": str(error)})
         return
+    # the stream carries the same run ownership as GET /api/sessions/{id}, or the UI would
+    # lose the source panel the moment the first event arrives
+    from ..bridge import runs as board
+
+    owner = board.run_for_session(record.id) or {}
+    first["run_id"] = owner.get("run_id")
+    first["node_id"] = owner.get("node_id")
     if first.get("read_only"):
         # the owner has exited: one snapshot is the whole stream
         yield _sse("snapshot", first)

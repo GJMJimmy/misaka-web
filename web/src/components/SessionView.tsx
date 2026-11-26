@@ -13,6 +13,7 @@ import type { Delta, Entry, Session, SessionRunState, Snapshot } from "../types"
 import Banner, { type BannerProps } from "./Banner";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
+import SourceBrowser, { type SourceRequest } from "./SourceBrowser";
 
 type ConnState = "connecting" | "open" | "closed";
 
@@ -39,6 +40,9 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
   const [banner, setBanner] = useState<BannerProps | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
+  // 这个会话属于哪个 run（服务端从看板查出来的），以及打开的来源面板
+  const [owner, setOwner] = useState<{ runId: string; nodeId: string | null } | null>(null);
+  const [sources, setSources] = useState<SourceRequest | null>(null);
   const [reconnectNonce, setReconnectNonce] = useState(0);
 
   const retry = useCallback(() => setReconnectNonce((n) => n + 1), []);
@@ -50,6 +54,9 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
     setPaused(snapshot.paused);
     setSessionError(snapshot.error ?? null);
     setReadOnly(snapshot.read_only === true);
+    // 一个不带 run_id 的增量帧不应该抹掉已知的归属（SSE 首帧与 GET 走的是同一份数据，
+    // 但仍然以有值为准）
+    if (snapshot.run_id) setOwner({ runId: snapshot.run_id, nodeId: snapshot.node_id ?? null });
   }, []);
 
   // delta 只追加/原位更新，绝不重排已渲染条目。
@@ -191,6 +198,16 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
         >
           {pauseBusy ? "…" : paused ? "恢复" : "暂停"}
         </button>
+        {owner ? (
+          <button
+            type="button"
+            className="btn btn--chip"
+            onClick={() => setSources({ highlight: null })}
+            title={`这次研究的来源清单（run ${owner.runId}${owner.nodeId ? " · 节点 " + owner.nodeId : ""}）`}
+          >
+            来源
+          </button>
+        ) : null}
       </div>
 
       {banner ? <Banner {...banner} /> : null}
@@ -203,7 +220,23 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
         <Banner kind="info" text="本会话没有控制权：可以只读观察，不能发送输入或暂停。" />
       ) : null}
 
-      <MessageList entries={entries} streaming={streaming} runState={runState} />
+      <MessageList
+        entries={entries}
+        streaming={streaming}
+        runState={runState}
+        onCitation={
+          owner ? (span) => setSources({ citation: span }) : undefined
+        }
+      />
+      {owner && sources ? (
+        <SourceBrowser
+          runId={owner.runId}
+          nodeId={owner.nodeId}
+          initial={sources}
+          onClose={() => setSources(null)}
+          onAuthLost={onAuthLost}
+        />
+      ) : null}
 
       <Composer
         onSend={handleSend}

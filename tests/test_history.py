@@ -61,3 +61,25 @@ def test_a_record_without_a_transcript_says_so(client, auth, temp_home):
     response = client.get("/api/sessions/gone", headers=auth)
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "no_control"
+
+def test_session_ids_include_the_transcript_header(temp_home):
+    """A hand-made transcript answers to the id in its header, not just to its file name."""
+    from misaka_web.bridge import runs as board
+
+    path = _write_session(temp_home["home"])
+    ids = board._session_ids_of(path)  # noqa: SLF001 - the mapping rule itself
+    assert "sess-saved-1" in ids, "the header id must be recognised"
+
+
+def test_the_session_list_and_snapshot_carry_their_run(client, auth, temp_home, monkeypatch):
+    from misaka_web.bridge import runs as board
+
+    _write_session(temp_home["home"])
+    monkeypatch.setattr(board, "session_run_map", lambda: {"sess-saved-1": {"run_id": "r_abc", "node_id": None}})
+
+    listed = client.get("/api/sessions", headers=auth).json()["sessions"]
+    entry = next(item for item in listed if item["id"] == "sess-saved-1")
+    assert entry["run_id"] == "r_abc" and entry["node_id"] is None
+
+    snapshot = client.get("/api/sessions/sess-saved-1", headers=auth).json()
+    assert snapshot["run_id"] == "r_abc"

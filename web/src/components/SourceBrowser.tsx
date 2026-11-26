@@ -1,11 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, describeError, getRunSources, isUnauthorized } from "../api";
 import type { CitationSpan } from "../markdown-parse";
 import type { SourceList } from "../types";
 import FileSheet from "./FileSheet";
 import SourcePanel, { type SourceHighlight } from "./SourcePanel";
 
-export type SourceRequest = { path?: string; page?: number; highlight?: SourceHighlight | null };
+export type SourceRequest = {
+  path?: string;
+  page?: number;
+  highlight?: SourceHighlight | null;
+  /** 一个待解析的引用（定位符/页码/路径）：加载清单后按 §3.5 的规则跳转。 */
+  citation?: CitationSpan;
+};
 
 type Props = {
   runId: string;
@@ -78,6 +84,15 @@ export default function SourceBrowser({ runId, nodeId, initial, onClose, onAuthL
     },
     [sources],
   );
+  // 从会话点进来的引用：清单到手后立刻按同一套规则解析，直接开到那一页。
+  const autoRef = useRef<CitationSpan | null>(initial?.citation ?? null);
+  useEffect(() => {
+    if (!sources || !autoRef.current) return;
+    const pending = autoRef.current;
+    autoRef.current = null;
+    void handleCitation(pending);
+  }, [sources, handleCitation]);
+
 
   if (view.kind === "file") {
     return (

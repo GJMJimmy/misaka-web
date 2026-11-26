@@ -3,10 +3,14 @@ import Markdown from "../markdown";
 import { formatClock, isRecord, safeJson } from "../format";
 import type { Entry, SessionRunState } from "../types";
 
+import type { CitationSpan } from "../markdown-parse";
+
 type Props = {
   entries: Entry[];
   streaming: Entry | null;
   runState: SessionRunState;
+  /** 会话属于某个 run 时，正文里的引用可点，交给来源面板。 */
+  onCitation?: (span: CitationSpan) => void;
 };
 
 type Rec = Record<string, unknown>;
@@ -58,11 +62,11 @@ function blocksOf(message: Rec): unknown[] {
 }
 
 /** Message text is markdown (headings, lists, fences, tables). Memoized: streaming re-renders often. */
-const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
+const MarkdownText = memo(function MarkdownText({ text, onCitation }: { text: string; onCitation?: (span: CitationSpan) => void }) {
   if (!text.trim()) return <p className="msg__text msg__text--muted">（空消息）</p>;
   return (
     <div className="msg__md">
-      <Markdown text={text} />
+      <Markdown text={text} onCitation={onCitation} />
     </div>
   );
 });
@@ -94,8 +98,8 @@ function renderThinking(block: Rec, key: string): ReactNode {
   );
 }
 
-function renderBlock(block: unknown, key: string): ReactNode {
-  if (typeof block === "string") return <MarkdownText text={block} key={key} />;
+function renderBlock(block: unknown, key: string, onCitation?: (span: CitationSpan) => void): ReactNode {
+  if (typeof block === "string") return <MarkdownText text={block} key={key} onCitation={onCitation} />;
   const record = rec(block);
   if (!record) return <p className="msg__text" key={key}>{String(block)}</p>;
   const type = str(record.type);
@@ -103,7 +107,7 @@ function renderBlock(block: unknown, key: string): ReactNode {
   if (type === "toolCall" || type === "tool_call" || type === "toolUse") return renderToolCall(record, key);
   if (type === "image") return <p className="msg__text msg__text--muted" key={key}>[图片]</p>;
   const text = str(record.text);
-  if (text) return <MarkdownText text={text} key={key} />;
+  if (text) return <MarkdownText text={text} key={key} onCitation={onCitation} />;
   // anything else is still data, not a blank line
   return (
     <details className="tool" key={key}>
@@ -113,12 +117,12 @@ function renderBlock(block: unknown, key: string): ReactNode {
   );
 }
 
-function renderMessageBody(message: Rec): ReactNode {
+function renderMessageBody(message: Rec, onCitation?: (span: CitationSpan) => void): ReactNode {
   const blocks = blocksOf(message);
   if (blocks.length === 0) {
     return <p className="msg__text msg__text--muted">（空消息）</p>;
   }
-  return <div className="msg__blocks">{blocks.map((block, index) => renderBlock(block, `b-${index}`))}</div>;
+  return <div className="msg__blocks">{blocks.map((block, index) => renderBlock(block, `b-${index}`, onCitation))}</div>;
 }
 
 function roleLabel(message: Rec): string {
@@ -179,7 +183,7 @@ function renderEntryRow(entry: unknown, key: string): ReactNode {
   );
 }
 
-function renderEntry(entry: Entry, key: string): ReactNode {
+function renderEntry(entry: Entry, key: string, onCitation?: (span: CitationSpan) => void): ReactNode {
   const message = messageOf(entry);
   if (!message) return renderEntryRow(entry, key);
   return (
@@ -188,12 +192,12 @@ function renderEntry(entry: Entry, key: string): ReactNode {
         <span className="msg__role">{roleLabel(message)}</span>
         {typeof message.timestamp === "string" ? <time className="msg__time">{formatClock(message.timestamp)}</time> : null}
       </header>
-      <div className="msg__body">{renderMessageBody(message)}</div>
+      <div className="msg__body">{renderMessageBody(message, onCitation)}</div>
     </article>
   );
 }
 
-export default function MessageList({ entries, streaming, runState }: Props) {
+export default function MessageList({ entries, streaming, runState, onCitation }: Props) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const pinnedRef = useRef(true);
 
@@ -217,7 +221,7 @@ export default function MessageList({ entries, streaming, runState }: Props) {
     <div className="transcript" ref={scrollerRef} onScroll={handleScroll}>
       {isEmpty ? <p className="empty">这个会话还没有任何条目。</p> : null}
 
-      {entries.map((entry, index) => renderEntry(entry, `entry-${index}`))}
+      {entries.map((entry, index) => renderEntry(entry, `entry-${index}`, onCitation))}
 
       {streamingMessage ? (
         <article className={`msg msg--${roleClass(streamingMessage)} msg--streaming`} aria-live="polite">
@@ -226,7 +230,7 @@ export default function MessageList({ entries, streaming, runState }: Props) {
             <span className="msg__live">流式中</span>
           </header>
           <div className="msg__body">
-            {renderMessageBody(streamingMessage)}
+            {renderMessageBody(streamingMessage, onCitation)}
             <span className="caret" aria-hidden="true" />
           </div>
         </article>

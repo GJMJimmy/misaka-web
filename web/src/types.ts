@@ -9,6 +9,8 @@ export type Session = {
   state: SessionState;
   title?: string | null;
   has_control: boolean;
+  run_id?: string | null;
+  node_id?: string | null;
   last_activity?: string | null;
 };
 
@@ -37,6 +39,9 @@ export type Snapshot = {
   stream_cursor: unknown;
   /** 属主进程已退出：历史来自 transcript，只读。 */
   read_only?: boolean;
+  /** 这个会话属于哪个 research run（服务端从看板查），来源面板需要它。 */
+  run_id?: string | null;
+  node_id?: string | null;
 };
 
 export type Delta = {
