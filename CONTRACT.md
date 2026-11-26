@@ -77,6 +77,63 @@ SSE 事件（`text/event-stream`，每条 `event: <name>` + `data: <json>`，25s
 | `delta` | `{state?, entries?, streaming?, cursor?, stream_cursor?}` | 增量；`entries` 出现即表示有新增条目，客户端按 cursor 重同步 |
 | `error` | `{code, message}` | 会话失效/属主变更；客户端应停下并提示，不自动重连（除非用户点重试） |
 
+
+### 3.1 研究运行面（M1）
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| GET | `/api/runs` | — | `{runs:[RunSummary]}` |
+| GET | `/api/runs/{run_id}` | — | `RunDetail` |
+| GET | `/api/runs/{run_id}/nodes/{node_id}` | — | `NodeDetail` |
+| GET | `/api/runs/{run_id}/nodes/{node_id}/file?name=plan.md` | — | `{name, text}`（相对节点目录；越界 422） |
+| POST | `/api/runs/{run_id}/tell` | `{text, node_id?}` | `{ok, node_id, session_id}`；节点没人监听时 422，message 里写明「Listening now: …」 |
+| POST | `/api/runs/{run_id}/stop` | — | `{ok, status:"stopping"}` |
+| POST | `/api/runs/{run_id}/limits` | `{changes:{sister_parallel?:int, parallel?:int, max_followups?:int, max_revisions?:int}}` | `{ok, before, after}` |
+
+错误码（新增）：`board_unavailable`(503，环境里没装 MISAKA 或还没有看板)、`not_found`(404)、`invalid_request`(422)。
+
+```ts
+type RunSummary = {
+  id: string; question: string; workspace: string;
+  status: string; phase?: string | null;
+  stop_requested: boolean; driver_active: boolean;
+  node_count: number; awaiting_approval: number;
+  created_at: number; updated_at: number; last_error?: string | null;
+};
+
+type NodeSummary = {
+  id: string; question?: string | null; depth: number; status?: string | null;
+  kind?: string | null; session_file?: string | null; listening: boolean;
+  last_error?: string | null; created_at?: number | null; syntheses: number;
+};
+
+type RunDetail = RunSummary & {
+  limits: Record<string, unknown>;
+  nodes: NodeSummary[];                       // 按 depth, 开启顺序
+  products: {kind: string; title: string; path: string}[];  // 运行级产物（question/survey/draft/final…）
+  dissolving: string[];                       // 消解了研究问题的节点 id
+};
+
+type NodeDetail = NodeSummary & {
+  run_id: string;
+  tasks: {id: string; title?: string; status?: string; assignee?: string; kind?: string; round?: number; updated_at?: number}[];
+  artifacts: {kind: string; title: string; path: string; created_at: number}[];
+  syntheses: {path: string; title: string; created_at: number}[];
+  files: {name: string; size: number; mtime: number}[];   // 节点目录下的 .md/.txt，形如 plan.md, cards/c1.md
+};
+```
+
+### 3.2 审批就是对话（M1 的关键约束）
+
+「同意并开始」不是写看板，而是 `POST /api/runs/{id}/tell` 发一句话给该节点的 Last Order，由她调用 `misaka_research_start`。因此：
+
+- 界面上的同意按钮必须有二次确认，并明确告诉用户「将把你的话发给这个节点的 Last Order」；
+- 节点不在监听时（`listening:false`）按钮应禁用或点击后原样展示服务端 422 的 message（里面写了谁在听）；
+- 发送成功只代表话投递到位，不代表计划已开始；状态要回读 `RunDetail.nodes[].status`。
+
+### 3.3 审计
+
+`stop` / `limits` / `tell` 每次成功都追加一行 JSON 到 token 目录旁的 `audit.jsonl`（`{at, action, run_id, …}`，0600）。
 ## 4. 上游接缝（只读参考，供实现者对齐语义）
 
 - 控制协议：`misaka/core/session_control.py:1-5,29-46,186-214`（一命令一 ack；`snapshot` 支持 cursor 增量）

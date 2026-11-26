@@ -118,6 +118,17 @@ def load_records() -> list[SessionRecord]:
     return sorted(records.values(), key=lambda item: item.mtime or 0, reverse=True)
 
 
+def find_path(path: str | None) -> SessionRecord | None:
+    """The record whose transcript is this file, comparing real paths."""
+    if not path:
+        return None
+    target = os.path.realpath(str(path))
+    for record in load_records():
+        if record.path and os.path.realpath(record.path) == target:
+            return record
+    return None
+
+
 def find(session_id: str) -> SessionRecord | None:
     for record in load_records():
         if record.id == session_id:

@@ -45,3 +45,37 @@ def client():
 
     with TestClient(create_app()) as test_client:
         yield test_client
+
+@pytest.fixture
+def auth(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def board(tmp_path, temp_home):
+    """One run, a root node and a child node, written the way MISAKA writes them."""
+    from misaka.core.platform import tasks as task_store
+    from misaka.core.research import runs as upstream
+
+    state = temp_home["home"] / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    con = task_store.connect(str(state / "board.db"))
+    upstream.init(con)
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    run = upstream.create(
+        con, workspace=str(workspace),
+        question="庚子赈灾账册与地方财政弹性", limits=upstream.normalize_limits({}),
+    )
+    root_node = upstream.root(con, run["id"]) or upstream.create_node(
+        con, run["id"], question="庚子赈灾账册与地方财政弹性", parents=[]
+    )
+    child = upstream.create_node(con, run["id"], question="捐输进项是否被重复记账？", parents=[root_node["id"]])
+    con.commit()
+    folder = workspace / "nodes" / root_node["id"]
+    (folder / "cards").mkdir(parents=True, exist_ok=True)
+    (folder / "plan.md").write_text("# 计划\n\n覆盖表：空白即声明的研究缺口。\n", encoding="utf-8")
+    (folder / "cards" / "c1.md").write_text("# 卡片 1\n\n声明：捐输进项在灾年上升。\n", encoding="utf-8")
+    (tmp_path / "secret.md").write_text("do not serve me", encoding="utf-8")
+    yield {"run": run, "node": root_node, "child": child, "workspace": workspace, "con": con}
+    con.close()

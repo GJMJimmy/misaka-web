@@ -77,6 +77,10 @@ def create_app() -> FastAPI:
         }
         return JSONResponse({"error": body}, status_code=exc.status_code)
 
+    from .routes_runs import router as runs_router
+
+    app.include_router(runs_router)
+
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
         """Public by design: the fastest answer to 'why does nothing work' after a deploy."""
@@ -229,6 +233,25 @@ def _environment() -> dict[str, Any]:
         "sessions_live": sum(1 for record in records if record.has_control),
         "control_parent": _control_parent_seen(),
     }
+
+
+def _board_path() -> str | None:
+    from ..bridge import runs as board
+
+    path = board.board_path()
+    import os
+
+    return path if os.path.isfile(path) else None
+
+
+def _research_available() -> bool:
+    from ..bridge import runs as board
+
+    try:
+        board._research()  # noqa: SLF001 - a capability probe, not a read
+        return True
+    except board.BoardUnavailable:
+        return False
 
 
 def _control_parent_seen() -> str | None:

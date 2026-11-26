@@ -58,6 +58,44 @@ def _respond(owner: FakeOwner) -> None:
         owner.revision += 1
 
 
+def _seed_board(home: "pathlib.Path", workspace: "pathlib.Path") -> None:
+    """Give the UI a board to read: two runs, three depths, markdown on disk.
+
+    Guarded so the demo never writes into a real board: it only seeds the demo home.
+    """
+    from misaka.core.platform import tasks as task_store
+    from misaka.core.research import runs as upstream
+
+    state = home / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    con = task_store.connect(str(state / "board.db"))
+    upstream.init(con)
+    if upstream.listing(con):
+        con.close()
+        return
+    workspace.mkdir(parents=True, exist_ok=True)
+    limits = upstream.normalize_limits({"max_nodes": 6})
+    first = upstream.create(con, workspace=str(workspace), question="庚子赈灾账册与地方财政弹性", limits=limits)
+    root = upstream.root(con, first["id"])
+    assert root is not None, "create() plants the root node"
+    alternative = upstream.create_node(con, first["id"], question="若账册口径失真，赈灾实绩还能否从税关记录复原？", parents=[root["id"]])
+    upstream.create_node(con, first["id"], question="捐输进项是否被州县与督抚重复记账？", parents=[alternative["id"]])
+    second = upstream.create(con, workspace=str(workspace), question="晚清书院藏书目录里的西学分类是如何被译介的？", limits=limits)
+    upstream.root(con, second["id"])  # create() already plants the root node
+    con.commit()
+
+    plan = "# 研究计划\n\n## 问题的两种读法\n\n一是财政弹性，二是记账口径。\n\n## 覆盖表\n\n| 子问题 | 卡片 |\n|---|---|\n| 捐输进项 | c1 |\n| 折色比例 | —（空白即缺口） |\n\n## 分工\n\n- Sister 10032：清代财政与捐输制度。\n"
+    card = "# 卡片 c1\n\n- 声明：捐输进项在灾年反而上升。\n- 类型：事实\n- 依据：p.42，字符偏移 1180\n- 引文：「是岁捐输倍于常年。」\n"
+    synthesis = "# 结论（第 1 版）\n\n三条线索互相冲突。所谓弹性，可能只是记账口径造成的幻觉。\n\n## 未采纳的方向\n\n税关记录与账册不同源，需要另开节点。\n"
+    folder = workspace / "nodes" / root["id"]
+    (folder / "cards").mkdir(parents=True, exist_ok=True)
+    (folder / "plan.md").write_text(plan, encoding="utf-8")
+    (folder / "cards" / "c1.md").write_text(card, encoding="utf-8")
+    (folder / "synthesis.md").write_text(synthesis, encoding="utf-8")
+    (folder / "SOURCES.md").write_text("# 来源\n\n- 《赈灾账册》卷三（p.42）\n", encoding="utf-8")
+    con.close()
+
+
 def main() -> int:
     home = pathlib.Path(os.environ.get("MISAKA_WEB_MISAKA_HOME") or (ROOT / ".demo-home"))
     os.environ.setdefault("MISAKA_WEB_MISAKA_HOME", str(home))
@@ -84,6 +122,7 @@ def main() -> int:
         encoding="utf-8",
     )
     threading.Thread(target=_respond, args=(owner,), daemon=True).start()
+    _seed_board(home, home / "demo-project")
 
     import uvicorn
 
