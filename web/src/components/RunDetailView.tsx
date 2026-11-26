@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { changeRunLimits, getRun, stopRun } from "../api";
+import {
+  changeRunLimits,
+  getRun,
+  getRunLog,
+  isUnauthorized,
+  resumeRun,
+  setMockResearchMode,
+  stopRun,
+} from "../api";
+import { MOCK } from "../env";
 import { classifyError, type LoadFailure } from "../errors";
 import { formatRelativeMs } from "../format";
 import {
@@ -10,10 +19,19 @@ import {
   type RunDetail,
 } from "../types";
 import ConfirmLayer from "./ConfirmLayer";
+import LogSheet from "./LogSheet";
 import StatusChip from "./StatusChip";
 
-type Props = { runId: string; onOpenNode: (nodeId: string) => void; onAuthLost: () => void };
+type Props = {
+  runId: string;
+  onOpenNode: (nodeId: string) => void;
+  onAuthLost: () => void;
+  flash?: string | null;
+  onFlashHandled?: () => void;
+};
+
 type Notice = { kind: "ok" | "error"; text: string };
+type MockProcessMode = "default" | "alive" | "dead" | "null";
 
 const LIMIT_HINT: Record<EditableLimitKey, string> = {
   sister_parallel: "兄弟节点并行度（1..8）",
@@ -22,18 +40,35 @@ const LIMIT_HINT: Record<EditableLimitKey, string> = {
   max_revisions: "最多修订次数（0..10）",
 };
 
-export default function RunDetailView({ runId, onOpenNode, onAuthLost }: Props) {
+/** 允许「恢复运行」的 status（CONTRACT §3.4 与 M2 说明；running 与 active 视为同类）。 */
+const RESUME_STATUSES = new Set(["active", "running", "waiting_input", "stopping"]);
+
+const NEXT_PROCESS_MODE: Record<MockProcessMode, MockProcessMode> = {
+  default: "alive",
+  alive: "dead",
+  dead: "null",
+  null: "default",
+};
+
+export default function RunDetailView({ runId, onOpenNode, onAuthLost, flash, onFlashHandled }: Props) {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [forcing, setForcing] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
+  const [resumeBusy, setResumeBusy] = useState(false);
   const [limitsOpen, setLimitsOpen] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [savingLimits, setSavingLimits] = useState(false);
   const [limitsError, setLimitsError] = useState<string | null>(null);
+  const [logOpen, setLogOpen] = useState(false);
+  const [logLoading, setLogLoading] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+  const [log, setLog] = useState<{ path: string; text: string }>({ path: "", text: "" });
+  const [mockProcess, setMockProcess] = useState<MockProcessMode>("default");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,6 +92,13 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost }: Props) 
     void load();
   }, [load]);
 
+  // 创建成功后带过来的提示：只消费一次。
+  useEffect(() => {
+    if (!flash) return;
+    setNotice({ kind: "ok", text: flash });
+    onFlashHandled?.();
+  }, [flash, onFlashHandled]);
+
   const groups = useMemo(() => {
     const map = new Map<number, NodeSummary[]>();
     for (const item of run?.nodes ?? []) {
@@ -74,6 +116,18 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost }: Props) 
       ),
     [run],
   );
+
+  const process = run?.process ?? null;
+  const canResume = Boolean(process && !process.alive && RESUME_STATUSES.has(run?.status ?? ""));
+
+  const resumeHint = (() => {
+    if (!process) return "这个运行不是由 WebUI 启动的，没有可恢复的进程。";
+    if (process.alive) return "进程还活着，不需要恢复。";
+    if (!RESUME_STATUSES.has(run?.status ?? "")) {
+      return `运行状态是「${run?.status ?? "未知"}」，不在 active / waiting_input / stopping 之内，不需要恢复。`;
+    }
+    return "进程已退出但运行还没结束：可以恢复（POST resume），恢复后回读状态。";
+  })();
 
   const openLimits = () => {
     if (!run) return;
@@ -117,7 +171,7 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost }: Props) 
       setNotice({ kind: "ok", text: `limits 已提交：${summary}。已回读运行详情。` });
       await load();
     } catch (err) {
-      if (classifyError(err, "提交 limits").kind === "unauthorized") {
+      if (isUnauthorized(err)) {
         onAuthLost();
         return;
       }
@@ -127,23 +181,85 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost }: Props) 
     }
   };
 
-  const doStop = async () => {
+  const doStop = async (force: boolean) => {
     if (!run) return;
-    setStopping(true);
+    if (force) setForcing(true);
+    else setStopping(true);
     setStopError(null);
     try {
-      const result = await stopRun(run.id);
+      const result = await stopRun(run.id, force);
       setStopOpen(false);
-      setNotice({ kind: "ok", text: `已请求停止（status=${result.status}）。已回读运行详情。` });
+      const terminated = result.terminated;
+      setNotice({
+        kind: "ok",
+        text: force
+          ? `已请求停止并终止进程${
+              terminated ? `（pid ${terminated.pid} ${terminated.ok ? "已终止" : "终止失败"}）` : "（没有可终止的进程）"
+            }。已回读运行详情。`
+          : `已请求停止（status=${result.status}）。已回读运行详情。`,
+      });
       await load();
     } catch (err) {
-      if (classifyError(err, "停止运行").kind === "unauthorized") {
+      if (isUnauthorized(err)) {
         onAuthLost();
         return;
       }
       setStopError(err instanceof Error ? err.message : String(err));
     } finally {
+      setForcing(false);
       setStopping(false);
+    }
+  };
+
+  const doResume = async () => {
+    if (!run) return;
+    setResumeBusy(true);
+    try {
+      const result = await resumeRun(run.id);
+      setNotice({
+        kind: "ok",
+        text: `已恢复进程（kind=${result.kind}，pid ${result.pid}）。已回读运行详情。`,
+      });
+      await load();
+    } catch (err) {
+      if (isUnauthorized(err)) {
+        onAuthLost();
+        return;
+      }
+      setNotice({ kind: "error", text: `恢复失败：${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setResumeBusy(false);
+    }
+  };
+
+  const openLog = async () => {
+    if (!run) return;
+    setLogOpen(true);
+    setLog({ path: process?.log ?? "", text: "" });
+    setLogLoading(true);
+    setLogError(null);
+    try {
+      const data = await getRunLog(run.id, 300);
+      setLog({ path: data.path, text: data.text });
+    } catch (err) {
+      if (isUnauthorized(err)) {
+        onAuthLost();
+        return;
+      }
+      setLogError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLogLoading(false);
+    }
+  };
+
+  const cycleMockProcess = async () => {
+    const next = NEXT_PROCESS_MODE[mockProcess];
+    try {
+      await setMockResearchMode({ process: next });
+      setMockProcess(next);
+      await load();
+    } catch {
+      setNotice({ kind: "error", text: "（mock）切换进程状态失败。" });
     }
   };
 
@@ -195,7 +311,11 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost }: Props) 
             <span className="badge badge--attention">待审批 {run.awaiting_approval}</span>
           ) : null}
           <span className="chip chip--tone-muted">更新 {formatRelativeMs(run.updated_at)}</span>
-          {run.driver_active ? <span className="chip chip--tone-ok">driver 活跃</span> : <span className="chip chip--tone-muted">driver 空闲</span>}
+          {run.driver_active ? (
+            <span className="chip chip--tone-ok">driver 活跃</span>
+          ) : (
+            <span className="chip chip--tone-muted">driver 空闲</span>
+          )}
           {run.stop_requested ? <span className="chip chip--tone-warn">已请求停止</span> : null}
         </div>
         <p className="panel__meta">
@@ -233,6 +353,91 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost }: Props) 
           </p>
         </section>
       ) : null}
+
+      <section className="panel">
+        <h3 className="panel__title">进程</h3>
+        {process ? (
+          <>
+            <dl className="kv">
+              <div className="kv__row">
+                <dt className="kv__key">pid</dt>
+                <dd className="kv__value">
+                  <code>{process.pid}</code>
+                </dd>
+              </div>
+              <div className="kv__row">
+                <dt className="kv__key">kind</dt>
+                <dd className="kv__value">
+                  <span className="chip chip--role">{process.kind}</span>
+                </dd>
+              </div>
+              <div className="kv__row">
+                <dt className="kv__key">alive</dt>
+                <dd className="kv__value">
+                  <span className={process.alive ? "badge badge--alive" : "badge badge--dead"}>
+                    {process.alive ? "存活" : "已退出"}
+                  </span>
+                </dd>
+              </div>
+              <div className="kv__row">
+                <dt className="kv__key">日志</dt>
+                <dd className="kv__value kv__value--mono">{process.log}</dd>
+              </div>
+              <div className="kv__row">
+                <dt className="kv__key">工作区</dt>
+                <dd className="kv__value kv__value--mono">{process.workspace}</dd>
+              </div>
+              <div className="kv__row">
+                <dt className="kv__key">启动</dt>
+                <dd className="kv__value">{formatRelativeMs(process.started_at) || "—"}</dd>
+              </div>
+            </dl>
+
+            {process.argv.length > 0 ? <pre className="argv-view">{process.argv.join(" ")}</pre> : null}
+
+            <div className="action-row">
+              <button type="button" className="btn" onClick={() => void openLog()}>
+                查看日志
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void doResume()}
+                disabled={!canResume || resumeBusy}
+                title={canResume ? "恢复（POST resume）" : resumeHint}
+              >
+                {resumeBusy ? "恢复中…" : "恢复运行"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={() => {
+                  setStopError(null);
+                  setStopOpen(true);
+                }}
+                disabled={stopDisabled}
+              >
+                停止运行
+              </button>
+            </div>
+            <p className="panel__hint">{resumeHint}</p>
+          </>
+        ) : (
+          <p className="panel__hint">
+            这个运行不是由 WebUI 启动的（外部 CLI 在跑或已结束）：没有进程信息，也没有终止进程的按钮。
+            仍可以在看板层面「请求停止」。
+          </p>
+        )}
+
+        {MOCK ? (
+          <div className="chip-row">
+            <button type="button" className="btn btn--chip" onClick={() => void cycleMockProcess()}>
+              mock: 进程={mockProcess === "default" ? "跟随数据" : mockProcess}
+            </button>
+            <span className="panel__hint">（切换 RunDetail.process 的 alive / null 演示）</span>
+          </div>
+        ) : null}
+      </section>
 
       <section className="panel">
         <h3 className="panel__title">节点</h3>
@@ -319,18 +524,31 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost }: Props) 
       {stopOpen ? (
         <ConfirmLayer
           title="停止这个运行？"
-          confirmLabel="确认停止"
+          confirmLabel="仅请求停止"
           danger
           busy={stopping}
+          extraLabel={process ? "请求停止并终止进程" : undefined}
+          extraBusy={forcing}
+          extraDanger
+          onExtra={process ? () => void doStop(true) : undefined}
           error={stopError}
           onCancel={() => setStopOpen(false)}
-          onConfirm={() => void doStop()}
+          onConfirm={() => void doStop(false)}
         >
           <p className="sheet__text">
-            将向 <code>{run.id}</code> 发出 <code>POST /api/runs/{"{"}id{"}"}/stop</code>。已完成的节点保留，
-            未开始的节点不再启动；status 会变成 <code>stopping</code>。
+            「仅请求停止」只写看板：<code>POST /api/runs/{"{"}id{"}"}/stop</code>，status 变成{" "}
+            <code>stopping</code>，进程自己收尾。
           </p>
-          <p className="sheet__text sheet__text--muted">这次调用会写入 audit.jsonl。</p>
+          {process ? (
+            <p className="sheet__text sheet__text--muted">
+              「请求停止并终止进程」还会发 <code>{"{"}force: true{"}"}</code> 终止 WebUI 托管的 pid{" "}
+              <code>{process.pid}</code>。已完成的节点保留；审计会分别记 stop 与 terminate。
+            </p>
+          ) : (
+            <p className="sheet__text sheet__text--muted">
+              这个运行不是由 WebUI 启动的，没有可终止的进程，所以只提供「仅请求停止」。
+            </p>
+          )}
         </ConfirmLayer>
       ) : null}
 
@@ -363,6 +581,19 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost }: Props) 
             ))}
           </div>
         </ConfirmLayer>
+      ) : null}
+
+      {logOpen ? (
+        <LogSheet
+          path={log.path}
+          text={log.text}
+          loading={logLoading}
+          error={logError}
+          onClose={() => {
+            setLogOpen(false);
+            setLogError(null);
+          }}
+        />
       ) : null}
     </div>
   );

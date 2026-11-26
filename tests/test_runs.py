@@ -24,6 +24,8 @@ def test_run_detail_exposes_nodes_and_limits(client, board, auth):
     assert body["nodes"][0]["listening"] is False
     assert body["limits"]["max_nodes"] >= 1
     assert [item["kind"] for item in body["products"]] == ["question"]
+    # a run this bridge never started carries no process record
+    assert body["process"] is None
 
 
 def test_node_detail_lists_the_markdown_it_owns(client, board, auth):

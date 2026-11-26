@@ -27,6 +27,7 @@ web/
     theme.ts / useAppHeight.ts / format.ts
     components/         LoginView / SessionListView / SessionView / MessageList / Composer / Banner / ThemeSwitch
                         Tabs / ResearchListView / RunDetailView / NodeDetailView / StatusChip / ConfirmLayer / FileViewer
+                        NewRunSheet（新建研究）/ LogSheet（进程日志）
     styles.css          设计视口 390x844、断点 768/1024、深/浅色、safe-area
 ```
 
@@ -175,7 +176,71 @@ SSE 说明：`EventSource` 不能自定义请求头，所以 `/api/sessions/{id}
 | 同意并开始被 422 | `n-md` 或 `n-beta-a`（`listening=false`，按钮禁用且给出原因） |
 | stop / limits 回读 | `r-alpha-2411` 详情页（limits 非法键/非整数/超范围都会 422） |
 
-## 已知限制（M0/M1 未做）
+## M2 进程托管（CONTRACT §3.4）
+
+### 端点对照
+
+| 端点 | 前端位置 |
+|---|---|
+| `POST /api/runs` | `api.ts:createRun` → `NewRunSheet`（研究列表「新建研究」） |
+| `POST /api/runs/{id}/resume` | `api.ts:resumeRun` → `RunDetailView` 的「恢复运行」 |
+| `GET /api/runs/{id}/log?lines=300` | `api.ts:getRunLog` → `RunDetailView` 的「查看日志」→ `LogSheet` |
+| `POST /api/runs/{id}/stop`（`{force:true}`） | `api.ts:stopRun(runId, force)` → 停止确认层的两个动作 |
+
+### 新建研究（sheet 表单）
+
+- 问题：`textarea`，必填，trim 后 **>= 2 字**（不到就不提交，页面上直接说）。
+- 工作区：可选，留空即不带 `workspace`（用服务端默认）。
+- 六个整数：留空即不传，对应 CLI 参数如下（验收 3 的对应关系，界面上每个框都标了 flag）：
+
+  | 表单键 | CLI 参数 |
+  |---|---|
+  | `depth` | `--depth` |
+  | `parallel` | `--parallel` |
+  | `sister_parallel` | `--sister-parallel` |
+  | `followups` | `--followups` |
+  | `revisions` | `--revisions` |
+  | `max_nodes` | `--max-nodes` |
+
+- 诊断开关 → `diagnostics: true`。
+- **两种成功结果分开处理**：
+  - `run_id` 非空 → 跳到该 run 详情，并在详情页顶部提示「研究已启动（pid …），看板已写入 run …」；
+  - `run_id === null` → 留在列表，提示「已启动，看板还没写进来」并给一个主按钮「刷新看板」+ pid/工作区/日志路径；**不自动轮询**。
+- 失败（422）→ 错误提示条里**原样**显示服务端 message（工作区越界 / 问题太短 / 整数越界各有原文）。
+
+### 运行详情的「进程」区块
+
+| `RunDetail.process` | 界面 |
+|---|---|
+| `null` | 说明「这个运行不是由 WebUI 启动的（外部 CLI 在跑或已结束）」，**不给终止进程的按钮**；看板层面的「仅请求停止」仍可用 |
+| 有值 | pid、kind（new/resume）、alive 徽标（存活/已退出）、日志路径、工作区、启动时间、argv 行；按钮：查看日志 / 恢复运行 / 停止运行 |
+
+- **恢复运行**只在 `alive === false` 且 `run.status` ∈ {active, running, waiting_input, stopping} 时可用；禁用时用一句话说明原因（进程还活着 / 状态不需要恢复）。
+- **停止运行**走二次确认层，层里两个动作：
+  - 「仅请求停止」→ `POST stop`（无 body）；
+  - 「请求停止并终止进程」→ `POST stop {force:true}`，展示返回的 `terminated`（pid）。
+  - 进程为 null 时确认层只提供「仅请求停止」。
+- **日志**：sheet 里等宽显示，`lines=300`，横向/纵向都在框内滚动，带「复制」（`navigator.clipboard`，失败会提示手动选取）。
+- **不乐观改本地状态**：stop / resume / limits / 新建成功之后一律重新 `GET /api/runs/{id}` 回读，提示文案里都写明「已回读」。
+
+### mock 演示开关（仅 VITE_MOCK=1）
+
+| 位置 | 开关 | 效果 |
+|---|---|---|
+| 研究列表 | `mock: 正常 / 空态 / 503` | 列表空态与 `board_unavailable` |
+| 运行详情「进程」区块 | `mock: 进程=跟随数据 / alive / dead / null` | 覆盖 `RunDetail.process` 的三种形态 |
+| 新建研究 sheet | `mock: run_id null / 有` | 演示「进程已起、看板还没写进来」（之后点「刷新看板」那条 run 会出现） |
+
+| 想试的东西 | 怎么做 |
+|---|---|
+| 新建成功 → 跳详情 | 研究列表 → 新建研究 → 填问题 → 启动研究 |
+| 新建 422 | 问题只填 1 个字；或工作区填 `/etc`；或 `--depth` 填 99 |
+| 进程存活 / 已退出 / null | 打开 `r-alpha-2411` 详情，用「进程」区块的 mock 按钮切换 |
+| 恢复运行 | `r-beta-2411`（进程已退出、status=active），或把任一 run 切到 `dead` |
+| force 停止 | `r-alpha-2411` 详情 → 停止运行 → 「请求停止并终止进程」 |
+| 日志 | 任一有进程的 run → 查看日志（300 行，含超长行） |
+
+## 已知限制（M0/M1/M2 未做）
 
 - **没有 Service Worker**：只提供 manifest + standalone 显示，暂不做离线缓存
   （避免 SW 缓存与静态托管/版本升级互相打架，留到下一里程碑）。
@@ -186,3 +251,8 @@ SSE 说明：`EventSource` 不能自定义请求头，所以 `/api/sessions/{id}
   需要实时化再单独设计。
 - 会话列表不做多会话并行流（进入哪个会话就只订阅哪个）。
 - 真机未验证：390x844 的视觉回归、软键盘弹出行为、深/浅色截图都还没有真机/浏览器证据。
+- **M2 的进程语义只在 mock 里验证过**：真实子进程是否被 `force` 终止、`run_id` 25s 等待窗口、
+  `<token 目录>/runs/*.log` 的实际日志格式，都需要连真后端才能确认。
+- 新建研究的表单**不做本地 limits 范围校验**（只校验整数）：越界由服务端 422 原样回显，
+  避免前端与服务端两套范围定义漂移。
+- `POST /api/runs` 最长等 25s：界面上只有「启动中…」的状态，没有进度条，也没有取消按钮。

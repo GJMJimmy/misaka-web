@@ -1,5 +1,12 @@
 import { delay, errorResponse, jsonResponse, parseBody } from "./mock-http";
-import { EDITABLE_LIMITS, type NodeDetail, type NodeSummary, type RunDetail, type RunSummary } from "./types";
+import {
+  EDITABLE_LIMITS,
+  type NodeDetail,
+  type NodeSummary,
+  type ProcessInfo,
+  type RunDetail,
+  type RunSummary,
+} from "./types";
 
 /**
  * VITE_MOCK=1 的研究面假后端：覆盖 CONTRACT §3.1 / §3.2 的全部端点。
@@ -36,6 +43,16 @@ type MockNode = {
   artifacts: MockArtifact[];
   files: MockFile[];
 };
+type MockProcess = {
+  pid: number;
+  kind: string;
+  alive: boolean;
+  log: string;
+  started_at: number;
+  argv: string[];
+  workspace: string;
+};
+
 type MockRun = {
   id: string;
   question: string;
@@ -51,12 +68,21 @@ type MockRun = {
   nodes: MockNode[];
   products: Array<{ kind: string; title: string; path: string }>;
   dissolving: string[];
+  /** CONTRACT §3.4：null/缺省 = 不是本桥接启动的。 */
+  process?: MockProcess | null;
 };
 
 type ListMode = "normal" | "empty" | "board_unavailable";
+type ProcessMode = "default" | "alive" | "dead" | "null";
 
 let listMode: ListMode = "normal";
 let DATA: MockRun[] | null = null;
+/** 演示开关：覆盖所有 RunDetail.process 的 alive / null 形态。 */
+let processMode: ProcessMode = "default";
+/** 演示开关：新建研究时返回 run_id=null（进程已起、看板还没写进来）。 */
+let createRunIdNull = false;
+/** 已启动但还没被看板发现的 run：下一次 GET /api/runs 时"追上来"。 */
+const PENDING: MockRun[] = [];
 
 const nowSec = (): number => Math.floor(Date.now() / 1000);
 
@@ -230,6 +256,149 @@ const DOC_NOTES = `# 节点笔记
 
 > 待补：节点树在 depth ≥ 3 时的缩进上限。
 `;
+
+/* ------------------------------------------------------------------ 进程（§3.4） */
+
+/** 六个整数键 → 真实 CLI 参数（验收 3 的对应关系）。 */
+const CLI_FLAG: Record<string, string> = {
+  depth: "--depth",
+  parallel: "--parallel",
+  sister_parallel: "--sister-parallel",
+  followups: "--followups",
+  revisions: "--revisions",
+  max_nodes: "--max-nodes",
+};
+
+const CREATE_LIMIT_RANGES: Record<string, { min: number; max: number }> = {
+  depth: { min: 1, max: 5 },
+  parallel: { min: 1, max: 8 },
+  sister_parallel: { min: 1, max: 8 },
+  followups: { min: 0, max: 20 },
+  revisions: { min: 0, max: 10 },
+  max_nodes: { min: 1, max: 200 },
+};
+
+const logPath = (runId: string): string => `~/.config/misaka-web/runs/${runId}.log`;
+
+const defaultArgv = (run: MockRun): string[] => ["python", "-m", "misaka", "research", run.question];
+
+function hashCode(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  return hash;
+}
+
+function syntheticProcess(run: MockRun, alive: boolean): MockProcess {
+  return {
+    pid: 45201 + (Math.abs(hashCode(run.id)) % 900),
+    kind: "new",
+    alive,
+    log: logPath(run.id),
+    started_at: nowSec() - 600,
+    argv: defaultArgv(run),
+    workspace: run.workspace,
+  };
+}
+
+/** 只读映射：按演示开关给出 RunDetail.process（可能 synthesized，不改底层数据）。 */
+function describeProcess(run: MockRun): ProcessInfo | null {
+  if (processMode === "null") return null;
+  const base = run.process ?? null;
+  if (!base) {
+    return processMode === "alive" || processMode === "dead"
+      ? { run_id: run.id, ...syntheticProcess(run, processMode === "alive") }
+      : null;
+  }
+  if (processMode === "alive" || processMode === "dead") {
+    return { run_id: run.id, ...base, alive: processMode === "alive" };
+  }
+  return { run_id: run.id, ...base };
+}
+
+/** 真正要动手时（resume / log / stop force）才把 synthesized 的进程落到数据上。 */
+function materializeProcess(run: MockRun): MockProcess | null {
+  if (processMode === "null") return null;
+  if (!run.process && (processMode === "alive" || processMode === "dead")) {
+    run.process = syntheticProcess(run, processMode === "alive");
+  }
+  return run.process ?? null;
+}
+
+const padLine = (n: number): string => String(n).padStart(5, "0");
+
+function mockLog(run: MockRun, process: MockProcess, lines: number): string {
+  const head = [
+    `# misaka research — ${run.id}`,
+    `# argv: ${process.argv.join(" ")}`,
+    `# workspace: ${process.workspace}`,
+    `# pid: ${process.pid}  kind: ${process.kind}  started: ${new Date(process.started_at * 1000).toISOString()}`,
+    "",
+  ];
+  const want = Math.max(lines, head.length);
+  const body: string[] = [];
+  for (let n = 1; body.length + head.length < want; n += 1) {
+    if (n % 37 === 0) {
+      body.push(
+        `[${padLine(n)}] [plan] 子节点提出新假设：把 since 游标下沉到 bridge，避免两次重连之间丢事件。这一行故意写得很长，用来验证日志区内部横向滚动，而不是让整个页面横向滚动。`,
+      );
+    } else if (n % 11 === 0) {
+      body.push(`[${padLine(n)}] [tool] read_file CONTRACT.md -> ok`);
+    } else if (n % 7 === 0) {
+      body.push(`[${padLine(n)}] [bridge] ack stop_requested=false alive=true`);
+    } else {
+      body.push(`[${padLine(n)}] [agent] turn ${Math.ceil(n / 5)} · waiting for driver ack`);
+    }
+  }
+  return [...head, ...body].join("\n");
+}
+
+function validateCreateLimits(
+  raw: unknown,
+): { ok: true; value: Record<string, number> } | { ok: false; message: string } {
+  if (raw === undefined || raw === null) return { ok: true, value: {} };
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, message: "limits 必须是对象。" };
+  }
+  const value: Record<string, number> = {};
+  for (const [key, item] of Object.entries(raw as Record<string, unknown>)) {
+    const range = CREATE_LIMIT_RANGES[key];
+    if (!range) {
+      return {
+        ok: false,
+        message: `limits 键「${key}」不接受。只允许 depth / parallel / sister_parallel / followups / revisions / max_nodes（对应 --depth / --parallel / --sister-parallel / --followups / --revisions / --max-nodes）。`,
+      };
+    }
+    if (typeof item !== "number" || !Number.isInteger(item)) {
+      return { ok: false, message: `limits「${key}」必须是整数（收到 ${JSON.stringify(item)}）。` };
+    }
+    if (item < range.min || item > range.max) {
+      return { ok: false, message: `limits「${key}」必须在 ${range.min}..${range.max} 之间（收到 ${item}）。` };
+    }
+    value[key] = item;
+  }
+  return { ok: true, value };
+}
+
+/** 工作区白名单（mock 版）：必须绝对路径（或以 ~ 开头），且落在 ~/Documents / ~/projects 之下。 */
+function checkWorkspace(raw: string): { ok: true; value: string } | { ok: false; message: string } {
+  if (raw === "") return { ok: true, value: "~/Documents" };
+  const normalized = raw.replace(/\\/g, "/");
+  const absolute = normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized);
+  if (!normalized.startsWith("~") && !absolute) {
+    return { ok: false, message: `工作区必须是绝对路径（或以 ~ 开头）：「${raw}」。` };
+  }
+  const allowed =
+    normalized === "~" ||
+    /^~\/(Documents|projects)(\/|$)/.test(normalized) ||
+    /\/Users\/[^/]+\/(Documents|projects)(\/|$)/.test(normalized);
+  if (!allowed) {
+    return {
+      ok: false,
+      message: `工作区越界：${raw} 必须落在 MISAKA_WEB_WORKSPACE_ROOT（mock: ~/Documents、~/projects）之下，且必须已存在。`,
+    };
+  }
+  return { ok: true, value: raw };
+}
 
 /* ------------------------------------------------------------------ 数据 */
 
@@ -469,13 +638,22 @@ function buildRuns(): MockRun[] {
         { kind: "survey", title: "领域 survey", path: "runs/r-alpha-2411/survey.md" },
         { kind: "draft", title: "综合草案", path: "runs/r-alpha-2411/draft.md" },
       ],
+      process: {
+        pid: 43122,
+        kind: "new",
+        alive: true,
+        log: "~/.config/misaka-web/runs/r-alpha-2411.log",
+        started_at: t - 5400,
+        argv: ["python", "-m", "misaka", "research", "MISAKA WebUI 的 M1 研究驾驶舱"],
+        workspace: "~/projects/misaka-web",
+      },
       dissolving: ["n-mob"],
     },
     {
       id: "r-beta-2411",
       question: "会话事件流的断线语义：since 游标该由服务端还是客户端持有？",
       workspace: "~/projects/misaka-web",
-      status: "awaiting_approval",
+      status: "active",
       phase: "plan",
       stop_requested: false,
       driver_active: true,
@@ -483,6 +661,15 @@ function buildRuns(): MockRun[] {
       updated_at: t - 3600,
       limits: { sister_parallel: 1, parallel: 2, max_followups: 3, max_revisions: 1 },
       nodes: [betaRoot, betaA, betaB],
+      process: {
+        pid: 54417,
+        kind: "resume",
+        alive: false,
+        log: "~/.config/misaka-web/runs/r-beta-2411.log",
+        started_at: t - 7200,
+        argv: ["python", "-m", "misaka", "research", "会话事件流的断线语义"],
+        workspace: "~/projects/misaka-web",
+      },
       products: [{ kind: "question", title: "研究问题", path: "runs/r-beta-2411/question.md" }],
       dissolving: [],
     },
@@ -555,6 +742,7 @@ function toDetail(run: MockRun): RunDetail {
     nodes: run.nodes.map(toNodeSummary),
     products: run.products.map((item) => ({ ...item })),
     dissolving: [...run.dissolving],
+    process: describeProcess(run),
   };
 }
 
@@ -617,14 +805,99 @@ export async function handleResearch(
   search: URLSearchParams,
 ): Promise<Response | null> {
   if (path === "/api/__mock/research" && method === "POST") {
-    const body = parseBody<{ mode?: unknown }>(bodyText);
-    const mode = typeof body?.mode === "string" ? body.mode : "normal";
-    listMode = mode === "empty" || mode === "board_unavailable" ? mode : "normal";
-    return jsonResponse({ ok: true, mode: listMode });
+    const body = parseBody<{ mode?: unknown; process?: unknown; createRunIdNull?: unknown }>(bodyText);
+    if (typeof body?.mode === "string") {
+      listMode = body.mode === "empty" || body.mode === "board_unavailable" ? body.mode : "normal";
+    }
+    if (typeof body?.process === "string") {
+      processMode =
+        body.process === "alive" || body.process === "dead" || body.process === "null" ? body.process : "default";
+    }
+    if (typeof body?.createRunIdNull === "boolean") createRunIdNull = body.createRunIdNull;
+    return jsonResponse({ ok: true, mode: listMode, process: processMode, createRunIdNull });
   }
 
   if (!path.startsWith("/api/runs")) return null;
   await delay(80);
+
+  if (path === "/api/runs" && method === "POST") {
+    const body = parseBody<{
+      question?: unknown;
+      workspace?: unknown;
+      limits?: unknown;
+      diagnostics?: unknown;
+    }>(bodyText);
+
+    const question = typeof body?.question === "string" ? body.question.trim() : "";
+    if (question.length < 2) {
+      return errorResponse(422, "invalid_request", `问题太短：至少要 2 个字（收到「${question}」）。`);
+    }
+
+    const workspaceRaw = typeof body?.workspace === "string" ? body.workspace.trim() : "";
+    const workspaceCheck = checkWorkspace(workspaceRaw);
+    if (!workspaceCheck.ok) return errorResponse(422, "invalid_request", workspaceCheck.message);
+    const workspace = workspaceCheck.value;
+
+    const limitsCheck = validateCreateLimits(body?.limits);
+    if (!limitsCheck.ok) return errorResponse(422, "invalid_request", limitsCheck.message);
+
+    const diagnostics = body?.diagnostics === true;
+    const id = `r-new-${Math.floor(Math.random() * 9000 + 1000)}`;
+    const pid = 40000 + Math.floor(Math.random() * 20000);
+    const argv = [
+      "python",
+      "-m",
+      "misaka",
+      "research",
+      question,
+      ...Object.entries(limitsCheck.value).flatMap(([key, value]) => [CLI_FLAG[key] ?? `--${key}`, String(value)]),
+      ...(diagnostics ? ["--diagnostics"] : []),
+    ];
+
+    const created: MockRun = {
+      id,
+      question,
+      workspace,
+      status: "active",
+      phase: "starting",
+      stop_requested: false,
+      driver_active: true,
+      created_at: nowSec(),
+      updated_at: nowSec(),
+      limits: { ...limitsCheck.value },
+      nodes: [
+        node({
+          id: "n-root",
+          depth: 0,
+          question,
+          status: "running",
+          listening: true,
+          session_file: `~/.misaka/sessions/${id}-root.jsonl`,
+          files: [file("plan.md", `# 计划（mock 新启动）\n\n## 问题\n${question}\n\n## 下一步\n1. 读 CONTRACT §3.4\n2. 起子节点\n`, 0)],
+        }),
+      ],
+      products: [{ kind: "question", title: "研究问题", path: `runs/${id}/question.md` }],
+      dissolving: [],
+      process: {
+        pid,
+        kind: "new",
+        alive: true,
+        log: logPath(id),
+        started_at: nowSec(),
+        argv,
+        workspace,
+      },
+    };
+
+    if (createRunIdNull) {
+      // 进程已起、看板还没写进来：先压着，下一次 GET /api/runs 再"追上来"。
+      PENDING.push(created);
+      return jsonResponse({ pid, run_id: null, workspace, log: logPath(id), argv });
+    }
+
+    data().push(created);
+    return jsonResponse({ pid, run_id: id, workspace, log: logPath(id), argv });
+  }
 
   if (path === "/api/runs" && method === "GET") {
     if (listMode === "board_unavailable") {
@@ -635,6 +908,10 @@ export async function handleResearch(
       );
     }
     if (listMode === "empty") return jsonResponse({ runs: [] });
+    if (PENDING.length > 0) {
+      const store = data();
+      for (const item of PENDING.splice(0)) store.push(item);
+    }
     return jsonResponse({ runs: data().map(toSummary) });
   }
 
@@ -677,10 +954,18 @@ export async function handleResearch(
     const action = actionMatch[2];
 
     if (action === "stop") {
+      const body = parseBody<{ force?: unknown }>(bodyText);
+      const force = body?.force === true;
       run.stop_requested = true;
       run.status = "stopping";
       run.updated_at = nowSec();
-      return jsonResponse({ ok: true, status: "stopping" });
+      let terminated: { ok: boolean; pid: number } | null = null;
+      const managed = materializeProcess(run);
+      if (force && managed) {
+        run.process = { ...managed, alive: false };
+        terminated = { ok: true, pid: managed.pid };
+      }
+      return jsonResponse({ ok: true, status: "stopping", terminated });
     }
 
     if (action === "limits") {
@@ -719,6 +1004,34 @@ export async function handleResearch(
       node_id: target.id,
       session_id: `(mock) ${(target.session_file ?? "session").split("/").pop() ?? "session"}`,
     });
+  }
+
+  const resumeMatch = /^\/api\/runs\/([^/]+)\/resume$/.exec(path);
+  if (resumeMatch && method === "POST") {
+    const run = data().find((item) => item.id === decodeURIComponent(resumeMatch[1]));
+    if (!run) return errorResponse(404, "not_found", `运行不存在：${resumeMatch[1]}`);
+    const managed = materializeProcess(run);
+    if (!managed) {
+      return errorResponse(404, "not_found", "这个运行不是由 WebUI 启动的，没有可恢复的进程。");
+    }
+    const pid = managed.pid + 1;
+    run.process = { ...managed, pid, kind: "resume", alive: true, started_at: nowSec() };
+    run.status = "active";
+    run.updated_at = nowSec();
+    return jsonResponse({ run_id: run.id, pid, kind: "resume", log: run.process.log, alive: true });
+  }
+
+  const logMatch = /^\/api\/runs\/([^/]+)\/log$/.exec(path);
+  if (logMatch && method === "GET") {
+    const run = data().find((item) => item.id === decodeURIComponent(logMatch[1]));
+    if (!run) return errorResponse(404, "not_found", `运行不存在：${logMatch[1]}`);
+    const managed = materializeProcess(run);
+    if (!managed) {
+      return errorResponse(404, "not_found", "这个运行不是由 WebUI 启动的，没有日志可读。");
+    }
+    const rawLines = Number.parseInt(search.get("lines") ?? "200", 10);
+    const lines = Number.isFinite(rawLines) ? Math.max(1, Math.min(rawLines, 2000)) : 200;
+    return jsonResponse({ path: managed.log, text: mockLog(run, managed, lines) });
   }
 
   const runMatch = /^\/api\/runs\/([^/]+)$/.exec(path);

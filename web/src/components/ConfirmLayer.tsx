@@ -10,9 +10,14 @@ type Props = {
   error?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
+  /** 可选的第二个动作（如「请求停止并终止进程」），只在确实有第二种收尾方式时给。 */
+  extraLabel?: string;
+  extraBusy?: boolean;
+  extraDanger?: boolean;
+  onExtra?: () => void;
 };
 
-/** 二次确认层：所有写操作（stop / limits / tell）都先过这一层。 */
+/** 二次确认层：所有写操作（stop / limits / tell / 新建）都先过这一层。 */
 export default function ConfirmLayer({
   title,
   children,
@@ -23,7 +28,13 @@ export default function ConfirmLayer({
   error = null,
   onConfirm,
   onCancel,
+  extraLabel,
+  extraBusy = false,
+  extraDanger = false,
+  onExtra,
 }: Props) {
+  const disabled = busy || extraBusy;
+
   return (
     <div className="sheet-layer" role="dialog" aria-modal="true" aria-label={title}>
       <div className="sheet-layer__scrim" onClick={onCancel} />
@@ -40,18 +51,28 @@ export default function ConfirmLayer({
             {error}
           </p>
         ) : null}
-        <footer className="sheet__foot">
-          <button type="button" className="btn" onClick={onCancel} disabled={busy}>
+        <footer className="sheet__foot sheet__foot--wrap">
+          <button type="button" className="btn" onClick={onCancel} disabled={disabled}>
             {cancelLabel}
           </button>
           <button
             type="button"
             className={`btn ${danger ? "btn--danger" : "btn--primary"}`}
             onClick={onConfirm}
-            disabled={busy}
+            disabled={disabled}
           >
             {busy ? "处理中…" : confirmLabel}
           </button>
+          {extraLabel && onExtra ? (
+            <button
+              type="button"
+              className={`btn ${extraDanger ? "btn--danger" : ""}`}
+              onClick={onExtra}
+              disabled={disabled}
+            >
+              {extraBusy ? "处理中…" : extraLabel}
+            </button>
+          ) : null}
         </footer>
       </div>
     </div>

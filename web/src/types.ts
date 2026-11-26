@@ -75,6 +75,8 @@ export type RunDetail = RunSummary & {
   nodes: NodeSummary[];
   products: RunProduct[];
   dissolving: string[];
+  /** CONTRACT §3.4：null = 这个 run 不是本桥接启动的（外部 CLI 在跑或已结束）。 */
+  process?: ProcessInfo | null;
 };
 
 export type NodeTask = {
@@ -104,6 +106,67 @@ export type NodeDetail = Omit<NodeSummary, "syntheses"> & {
 };
 
 export type RunFile = { name: string; text: string };
+
+/* ------------------------------------------------------- M2 进程托管（§3.4） */
+
+export type ProcessInfo = {
+  run_id: string;
+  pid: number;
+  argv: string[];
+  workspace: string;
+  kind: string; // "new" | "resume" | …
+  log: string;
+  started_at: number;
+  alive: boolean;
+};
+
+/**
+ * 新建研究时允许的六个整数键，一一对应 CLI 参数（CONTRACT §3.4 / 验收 3）：
+ * --depth / --parallel / --sister-parallel / --followups / --revisions / --max-nodes
+ */
+export const CREATE_LIMIT_KEYS = [
+  { key: "depth", flag: "--depth", label: "研究深度", hint: "1..5" },
+  { key: "parallel", flag: "--parallel", label: "节点内并行度", hint: "1..8" },
+  { key: "sister_parallel", flag: "--sister-parallel", label: "兄弟节点并行度", hint: "1..8" },
+  { key: "followups", flag: "--followups", label: "追问轮数", hint: "0..20" },
+  { key: "revisions", flag: "--revisions", label: "修订次数", hint: "0..10" },
+  { key: "max_nodes", flag: "--max-nodes", label: "最多节点数", hint: "1..200" },
+] as const;
+
+export type CreateLimitKey = (typeof CREATE_LIMIT_KEYS)[number]["key"];
+export type CreateRunLimits = Partial<Record<CreateLimitKey, number>>;
+
+export type CreateRunRequest = {
+  question: string;
+  workspace?: string;
+  limits?: CreateRunLimits;
+  diagnostics?: boolean;
+};
+
+export type CreateRunResponse = {
+  pid: number;
+  /** 非空 = 子进程已把 run 写进看板；null = 进程已起但看板还没写进来。 */
+  run_id: string | null;
+  workspace: string;
+  log: string;
+  argv: string[];
+};
+
+export type ResumeRunResponse = {
+  run_id: string;
+  pid: number;
+  kind: string;
+  log: string;
+  alive: boolean;
+};
+
+export type RunLog = { path: string; text: string };
+
+export type StopRunResponse = {
+  ok: boolean;
+  status: string;
+  terminated?: { ok: boolean; pid: number } | null;
+};
 
 /** limits 里允许前端改的四个整数（CONTRACT §3.1）。 */
 export const EDITABLE_LIMITS = ["sister_parallel", "parallel", "max_followups", "max_revisions"] as const;

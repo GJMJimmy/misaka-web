@@ -4,11 +4,17 @@ import { MOCK } from "../env";
 import { classifyError, type LoadFailure } from "../errors";
 import { formatRelativeMs } from "../format";
 import type { RunSummary } from "../types";
+import NewRunSheet from "./NewRunSheet";
 import StatusChip from "./StatusChip";
 
-type Props = { onOpen: (runId: string) => void; onAuthLost: () => void };
+type Props = {
+  onOpen: (runId: string) => void;
+  onCreatedRun: (runId: string, notice: string) => void;
+  onAuthLost: () => void;
+};
 
 type MockMode = "normal" | "empty" | "board_unavailable";
+type PendingStart = { pid: number; workspace: string; log: string };
 
 const MOCK_LABEL: Record<MockMode, string> = {
   normal: "mock: 正常",
@@ -22,11 +28,13 @@ const NEXT_MODE: Record<MockMode, MockMode> = {
   board_unavailable: "normal",
 };
 
-export default function ResearchListView({ onOpen, onAuthLost }: Props) {
+export default function ResearchListView({ onOpen, onCreatedRun, onAuthLost }: Props) {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [mockMode, setMockMode] = useState<MockMode>("normal");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [pending, setPending] = useState<PendingStart | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,12 +61,17 @@ export default function ResearchListView({ onOpen, onAuthLost }: Props) {
   const cycleMock = async () => {
     const next = NEXT_MODE[mockMode];
     try {
-      await setMockResearchMode(next);
+      await setMockResearchMode({ mode: next });
       setMockMode(next);
       await load();
     } catch {
       setFailure({ kind: "other", message: "（mock）切换演示状态失败。", raw: "" });
     }
+  };
+
+  const refreshBoard = async () => {
+    setPending(null);
+    await load();
   };
 
   const boardless = failure?.kind === "board_unavailable";
@@ -73,11 +86,31 @@ export default function ResearchListView({ onOpen, onAuthLost }: Props) {
               {MOCK_LABEL[mockMode]}
             </button>
           ) : null}
-          <button type="button" className="btn btn--chip" onClick={() => void load()} disabled={loading}>
+          <button type="button" className="btn btn--chip" onClick={() => void refreshBoard()} disabled={loading}>
             {loading ? "刷新中…" : "刷新"}
           </button>
         </div>
       </div>
+
+      <button type="button" className="btn btn--primary btn--block" onClick={() => setSheetOpen(true)}>
+        新建研究
+      </button>
+
+      {pending ? (
+        <section className="notice notice--ok">
+          <h3 className="notice__title">已启动，看板还没写进来</h3>
+          <p className="notice__body">
+            子进程 <code>pid {pending.pid}</code> 已启动，但在等待窗口内没把 run 写进看板
+            （<code>run_id: null</code>）。稍后点「刷新看板」回读。
+          </p>
+          <p className="notice__detail">
+            工作区 {pending.workspace} · 日志 {pending.log}
+          </p>
+          <button type="button" className="btn btn--primary" onClick={() => void refreshBoard()}>
+            刷新看板
+          </button>
+        </section>
+      ) : null}
 
       {boardless ? (
         <section className="notice notice--warn">
@@ -108,7 +141,8 @@ export default function ResearchListView({ onOpen, onAuthLost }: Props) {
 
       {!loading && !failure && runs.length === 0 ? (
         <p className="empty">
-          还没有研究运行。在任意会话里让 Last Order 调用 <code>misaka_research_start</code> 之后，这里会出现运行卡片。
+          还没有研究运行。点上面的「新建研究」启动一个，或在任意会话里让 Last Order 调用{" "}
+          <code>misaka_research_start</code>。
         </p>
       ) : null}
 
@@ -137,6 +171,24 @@ export default function ResearchListView({ onOpen, onAuthLost }: Props) {
           </li>
         ))}
       </ul>
+
+      {sheetOpen ? (
+        <NewRunSheet
+          onCancel={() => setSheetOpen(false)}
+          onAuthLost={onAuthLost}
+          onStarted={(result) => {
+            setSheetOpen(false);
+            if (result.runId) {
+              onCreatedRun(
+                result.runId,
+                `研究已启动（pid ${result.pid}），看板已写入 run ${result.runId} —— 就是当前这一页。`,
+              );
+              return;
+            }
+            setPending({ pid: result.pid, workspace: result.workspace, log: result.log });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

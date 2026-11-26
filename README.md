@@ -4,10 +4,15 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬�
 
 **M0（已交付）**：token 登录 → 会话列表 → 单会话实时流（SSE 增量）→ 发消息 / 暂停 / 恢复。
 **M1（已交付）**：研究列表 → 运行详情（节点按 depth 分组、limits、停止）→ 节点页（tasks / files / syntheses）→ 手写 Markdown 渲染 → **审批即对话**（把「同意」发给该节点的 Last Order）。
+**M2（已交付）**：在手机上**新建研究**（九参数中的六个 + 诊断）→ 托管 `misaka research` 子进程 → 进程区块（pid / kind / alive / 日志）→ 查看日志 → 恢复运行 → 双档停止（仅请求停止 / 请求停止并终止进程）。
 
 | 会话流式 | 研究列表 | 运行详情 | 节点 Markdown | 审批二次确认 |
 |---|---|---|---|---|
 | ![流式](docs/screens/mobile-streaming.png) | ![研究](docs/screens/mobile-runs.png) | ![运行](docs/screens/mobile-run-detail.png) | ![节点](docs/screens/mobile-node-markdown.png) | ![审批](docs/screens/mobile-approve.png) |
+
+| 新建研究 | 进程区块 | 双档停止 |
+|---|---|---|
+| ![新建](docs/screens/mobile-new-run.png) | ![进程](docs/screens/mobile-run-process.png) | ![停止](docs/screens/mobile-stop-confirm.png) |
 
 （截图全部来自 `scripts/dev-demo.py` 的真实链路：React ⇄ SSE / REST ⇄ 控制 socket + 真看板 ⇄ 会话属主进程，390×844，DSF 2；横向溢出实测为 0。）
 
@@ -30,7 +35,7 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'          # 研究面需要 misaka 在同一环境里
 python -m misaka_web token       # 生成 token（0600）
 python -m misaka_web serve       # 127.0.0.1:8787
-pytest -q                        # 45 项：认证/协议/看板/审批/审计
+pytest -q                        # 53 项：认证/协议/看板/审批/审计/进程托管
 ```
 
 没有真实 MISAKA 运行也能看完整界面：

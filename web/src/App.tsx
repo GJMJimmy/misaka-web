@@ -93,6 +93,7 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [runFlash, setRunFlash] = useState<string | null>(null);
 
   /* 极简 hash 路由：不引入路由库，只让手机返回键/深链可用。 */
   useEffect(() => {
@@ -144,6 +145,14 @@ export default function App() {
   useEffect(() => {
     if (auth === "authenticated") void refreshSessions();
   }, [auth, refreshSessions]);
+
+  const handleRunCreated = useCallback(
+    (runId: string, notice: string) => {
+      setRunFlash(notice);
+      navigate({ kind: "run", id: runId });
+    },
+    [navigate],
+  );
 
   const handleAuthLost = useCallback(() => {
     writeToken(null);
@@ -229,13 +238,19 @@ export default function App() {
             onAuthLost={handleAuthLost}
           />
         ) : screen.kind === "runs" ? (
-          <ResearchListView onOpen={(id) => navigate({ kind: "run", id })} onAuthLost={handleAuthLost} />
+          <ResearchListView
+            onOpen={(id) => navigate({ kind: "run", id })}
+            onCreatedRun={handleRunCreated}
+            onAuthLost={handleAuthLost}
+          />
         ) : screen.kind === "run" ? (
           <RunDetailView
             key={screen.id}
             runId={screen.id}
             onOpenNode={(nodeId) => navigate({ kind: "node", runId: screen.id, nodeId })}
             onAuthLost={handleAuthLost}
+            flash={runFlash}
+            onFlashHandled={() => setRunFlash(null)}
           />
         ) : screen.kind === "node" ? (
           <NodeDetailView

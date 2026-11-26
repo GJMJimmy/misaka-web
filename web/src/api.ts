@@ -1,5 +1,18 @@
 import { API_BASE, apiUrl } from "./env";
-import type { LimitChanges, NodeDetail, RunDetail, RunFile, RunSummary, Session, Snapshot } from "./types";
+import type {
+  CreateRunRequest,
+  CreateRunResponse,
+  LimitChanges,
+  NodeDetail,
+  ResumeRunResponse,
+  RunDetail,
+  RunFile,
+  RunLog,
+  RunSummary,
+  Session,
+  Snapshot,
+  StopRunResponse,
+} from "./types";
 
 const TOKEN_KEY = "misaka.web.token";
 
@@ -207,10 +220,11 @@ export async function tellRun(
   );
 }
 
-/** POST /api/runs/{run_id}/stop */
-export async function stopRun(runId: string): Promise<{ ok: boolean; status: string }> {
-  return requestJson<{ ok: boolean; status: string }>(`/api/runs/${encodeURIComponent(runId)}/stop`, {
+/** POST /api/runs/{run_id}/stop —— force=true 且由本桥接托管时再终止进程。 */
+export async function stopRun(runId: string, force = false): Promise<StopRunResponse> {
+  return requestJson<StopRunResponse>(`/api/runs/${encodeURIComponent(runId)}/stop`, {
     method: "POST",
+    ...(force ? { body: jsonBody({ force: true }) } : {}),
   });
 }
 
@@ -225,15 +239,34 @@ export async function changeRunLimits(
   );
 }
 
+/* ------------------------------------------------------- M2 进程托管（§3.4） */
+
+/** POST /api/runs —— 启动一个研究子进程；run_id 可能为 null（看板还没写进来）。 */
+export async function createRun(body: CreateRunRequest): Promise<CreateRunResponse> {
+  return requestJson<CreateRunResponse>("/api/runs", { method: "POST", body: jsonBody(body) });
+}
+
+/** POST /api/runs/{run_id}/resume */
+export async function resumeRun(runId: string): Promise<ResumeRunResponse> {
+  return requestJson<ResumeRunResponse>(`/api/runs/${encodeURIComponent(runId)}/resume`, { method: "POST" });
+}
+
+/** GET /api/runs/{run_id}/log?lines=… —— 非本桥接启动的 run → 404。 */
+export async function getRunLog(runId: string, lines = 300): Promise<RunLog> {
+  return requestJson<RunLog>(`/api/runs/${encodeURIComponent(runId)}/log?lines=${lines}`);
+}
+
 /**
- * 仅 VITE_MOCK=1 使用：切换研究面的演示状态（正常 / 空态 / 503）。
- * 真实后端没有这个端点，所以在 MOCK=false 的构建里永远不会被调用。
+ * 仅 VITE_MOCK=1 使用：切换研究面的演示状态（列表空态/503、进程 alive/dead/null、
+ * 新建时 run_id 是否为 null）。真实后端没有这个端点，MOCK=false 的构建里永远不会调用。
  */
-export async function setMockResearchMode(
-  mode: "normal" | "empty" | "board_unavailable",
-): Promise<void> {
+export async function setMockResearchMode(patch: {
+  mode?: "normal" | "empty" | "board_unavailable";
+  process?: "default" | "alive" | "dead" | "null";
+  createRunIdNull?: boolean;
+}): Promise<void> {
   await requestJson<{ ok: boolean }>("/api/__mock/research", {
     method: "POST",
-    body: jsonBody({ mode }),
+    body: jsonBody(patch),
   });
 }

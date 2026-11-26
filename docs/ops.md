@@ -404,6 +404,7 @@ input 返回 502 `no_control` / `unconfirmed`；日志里出现 ENOENT / EACCES 
 - 外部（SSH）起的 run 只能看和审批，不能在 WebUI 里终止它的进程（进程不归本服务托管）。
 - 日志与备份策略只给到原则：轮转交给 journald，备份保留周期由你的策略决定（token 备份必须加密）。
 - 服务器上永远不需要 node：如果有人在服务器上装 node 来「修前端」，说明流程走错（应在发布机构建并提交 `static/`）。
+
 ## 8. 启动/恢复研究（M2）
 
 WebUI 可以代你起 `misaka research`，但**服务进程必须能调用上游 CLI**：
