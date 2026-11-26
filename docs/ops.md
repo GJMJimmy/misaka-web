@@ -447,7 +447,7 @@ WebUI 可以代你起 `misaka research`，但**服务进程必须能调用上游
 - 默认用 `python -m misaka research …`，即在同一个 venv 里（`install.sh --with-misaka`（等价于 `pip install '.[research]'`）已经覆盖）；
 - 上游装在别处时，用 `Environment=MISAKA_WEB_MISAKA_BIN=/path/to/misaka` 指定；
 - 生成模型凭据走研究账号的 `~/.misaka`，因此服务必须以该账号运行（同 §2.4）；
-- 起 run 的目录受白名单限制：`MISAKA_WEB_WORKSPACE_ROOT`（默认 `~/Documents`），越界 422。
+- 起 run 的目录受白名单限制：`MISAKA_WEB_WORKSPACE_ROOT`（默认 `~/Documents`），越界 422；白名单内的**新目录会自动创建**（首次起 run 时上游再铺 `PROJECT.md`/`cards/`，不建 git）。
 
 子进程的 stdout/stderr 落在 `<token 目录>/runs/*.log`，进程档案在 `<token 目录>/runs.json`（0600）。
 所以：

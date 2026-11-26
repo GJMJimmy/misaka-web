@@ -47,19 +47,32 @@ def workspace_root() -> Path:
     return (documents if documents.is_dir() else Path(os.path.expanduser("~"))).resolve()
 
 
-def check_workspace(value: str | None) -> str:
+def check_workspace(value: str | None, *, create: bool = False) -> tuple[str, bool]:
+    """Resolve a workspace inside the allowlist. With create, a missing folder is made.
+
+    Starting a run may create its folder (one less reason to open an SSH session); resuming an
+    existing run may not, because its folder disappearing is a fact worth reporting.
+    """
+    root = workspace_root()
     if not value:
-        return str(workspace_root())
+        return str(root), False
     path = Path(str(value)).expanduser()
     if not path.is_absolute():
-        path = workspace_root() / path
+        path = root / path
     resolved = path.resolve()
-    root = workspace_root()
     if resolved != root and root not in resolved.parents:
         raise SupervisorError(f"A workspace must live under {root}; refused: {resolved}")
-    if not resolved.is_dir():
+    if resolved.is_dir():
+        return str(resolved), False
+    if resolved.exists():
+        raise SupervisorError(f"{resolved} exists and is not a folder.")
+    if not create:
         raise SupervisorError(f"A research project folder must already exist: {resolved}")
-    return str(resolved)
+    try:
+        resolved.mkdir(parents=True)
+    except OSError as error:
+        raise SupervisorError(f"Could not create {resolved}: {error}") from error
+    return str(resolved), True
 
 
 def research_command() -> list[str]:
@@ -221,7 +234,7 @@ def start(*, workspace: str, question: str, limits: dict[str, Any] | None = None
     text = (question or "").strip()
     if len(text) < 2:
         raise SupervisorError("A research question is required.")
-    folder = check_workspace(workspace)
+    folder, created = check_workspace(workspace, create=True)
     argv = [*research_command(), text, *_limit_args(limits)]
     if diagnostics:
         argv.append("--diagnostics")
@@ -232,12 +245,13 @@ def start(*, workspace: str, question: str, limits: dict[str, Any] | None = None
     run_id = _await_run_id(workspace=folder, question=text, since=since)
     if run_id:
         _record(run_id, pid=process.pid, argv=argv, workspace=folder, kind="new", log_file=log_file)
-    return {"pid": process.pid, "run_id": run_id, "workspace": folder, "log": str(log_file), "argv": argv}
+    return {"pid": process.pid, "run_id": run_id, "workspace": folder, "log": str(log_file), "argv": argv,
+            "workspace_created": created}
 
 
 def resume(run_id: str) -> dict[str, Any]:
     detail = board.run_detail(run_id)
-    folder = check_workspace(detail["workspace"])
+    folder, _created = check_workspace(detail["workspace"])
     argv = [*research_command(), "--resume", run_id]
     stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
     log_file = log_dir() / f"resume-{run_id}-{stamp}.log"

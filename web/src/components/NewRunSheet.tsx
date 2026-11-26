@@ -112,14 +112,14 @@ export default function NewRunSheet({ onCancel, onStarted, onAuthLost }: Props) 
 
           <label className="field">
             <span className="field__label">
-              工作区 <span className="field__hint">可选，留空用服务端默认</span>
+              工作区 <span className="field__hint">可选；留空用服务端默认，不存在的目录会自动创建</span>
             </span>
             <input
               className="field__input"
               type="text"
               value={workspace}
               onChange={(event) => setWorkspace(event.target.value)}
-              placeholder="~/Documents/project-x（必须在 MISAKA_WEB_WORKSPACE_ROOT 之下）"
+              placeholder="~/Documents/project-x（必须在 MISAKA_WEB_WORKSPACE_ROOT 之下；不存在会自动建）"
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}

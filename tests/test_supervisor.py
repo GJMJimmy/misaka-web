@@ -64,9 +64,31 @@ def test_a_workspace_outside_the_root_is_refused(workspace_root, tmp_path):
         supervisor.start(workspace=str(outside), question="越界的工作区")
 
 
-def test_a_missing_workspace_is_refused(workspace_root):
+def test_a_missing_workspace_is_created_for_a_new_run(workspace_root):
+    """Starting a run may make its folder: the phone should not need an SSH session for mkdir."""
+    target = workspace_root / "brand-new"
+    assert not target.exists()
+    result = supervisor.start(workspace=str(target), question="新建目录里的研究", limits={})
+    try:
+        assert target.is_dir(), "the run's folder should exist now"
+        assert result["workspace_created"] is True
+        assert result["run_id"], "the run still starts in the folder it just made"
+    finally:
+        if result.get("run_id"):
+            supervisor.terminate(result["run_id"])
+
+
+def test_a_file_in_the_way_is_refused(workspace_root):
+    blocker = workspace_root / "not-a-folder"
+    blocker.write_text("x", encoding="utf-8")
     with pytest.raises(supervisor.SupervisorError):
-        supervisor.start(workspace=str(workspace_root / "absent"), question="不存在的工作区")
+        supervisor.start(workspace=str(blocker), question="路径被文件占了")
+
+
+def test_resume_still_requires_the_folder_to_exist(workspace_root):
+    gone = workspace_root / "vanished"
+    with pytest.raises(supervisor.SupervisorError):
+        folder, created = supervisor.check_workspace(str(gone))
 
 
 def test_a_one_character_question_is_refused(workspace_root):

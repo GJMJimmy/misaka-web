@@ -112,6 +112,8 @@ async def create_run(body: CreateRunBody) -> dict[str, Any]:
         )
     except supervisor.SupervisorError as error:
         _fail(422, str(error), code="invalid_request")
+    if result.get("workspace_created"):
+        audit.record("workspace_create", workspace=result.get("workspace"))
     audit.record("run_start", run_id=result.get("run_id"), pid=result.get("pid"), workspace=result.get("workspace"),
                  question=(body.question or "")[:200])
     return result
