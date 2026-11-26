@@ -21,9 +21,15 @@ def main(argv: list[str] | None = None) -> int:
     token = sub.add_parser("token", help="Create or show the token file")
     token.add_argument("--rotate", action="store_true", help="Replace the existing token")
 
+    sub.add_parser("doctor", help="Check the token, the board, the UI build and the control sockets")
+
     args = parser.parse_args(argv)
     if args.command == "token":
         return _token(rotate=getattr(args, "rotate", False))
+    if args.command == "doctor":
+        from .doctor import main as doctor_main
+
+        return doctor_main()
     return _serve(args)
 
 

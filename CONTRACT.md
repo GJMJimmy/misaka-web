@@ -180,6 +180,15 @@ type Source = {
 - `p.<n>` → 打开来源面板并高亮第 n 页（清单里可能有多份来源，猜错比不跳更糟）。
 - 打开文件：应用内 sheet 用 `<embed type="application/pdf" src="…/file?path=…&node=…">`，并把页码放在 **hash**（`#page=42`）。iOS Safari 对 iframe 内 PDF 支持不佳，所以 sheet 里**必须**同时给「在新标签打开」按钮（同一 URL）。
 
+
+### 3.6 审计轨迹（M4）
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| GET | `/api/audit?limit=100&action=` | `limit` 1..1000，`action` 可精确过滤 | `{path, entries:[{at, action, run_id?, node_id?, session_id?, pid?, changes?, question?, workspace?}], total}`，**最新在前** |
+
+`entries` 只包含成功的写操作：`tell` / `stop` / `terminate` / `limits` / `run_start` / `resume`。文件是 `<token 目录>/audit.jsonl`，一行一个 JSON。
+
 ## 4. 上游接缝（只读参考，供实现者对齐语义）
 
 - 控制协议：`misaka/core/session_control.py:1-5,29-46,186-214`（一命令一 ack；`snapshot` 支持 cursor 增量）

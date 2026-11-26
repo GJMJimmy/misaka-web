@@ -128,6 +128,14 @@ sudo systemctl reload caddy
 
 ### 2.6 验收（五分钟）
 
+先跑一遍自检（它会指出 token 权限、UI 产物、看板能否读、控制 socket 是否可见这些最常见的坑）：
+
+```sh
+sudo -u misaka /opt/misaka-web/.venv/bin/misaka-web doctor
+```
+
+`[FAIL]` 的是必须修掉的；`[warn]` 的要看一眼（例如「控制 socket 可见但当前没有会话在跑」是正常的）。
+
 ```sh
 # 1) 服务与端口：应当只有一个 127.0.0.1:8787
 ss -ltnp | grep 8787
@@ -429,3 +437,37 @@ tail -n 100 ~/.config/misaka-web/runs/new-*.log
 - 服务重启后 `runs.json` 仍在，UI 会显示进程「已退出」；用「恢复运行」重新拉起（走 `--resume`），不要手工 `kill` 后重起新 run。
 - 停止分两步：先请求停止（看板标记，让工作流在节点边界收尾），必要时再强制终止进程——强制终止会丢当前节点未落盘的进度。
 - 外部（SSH）起的 run 不进 `runs.json`，UI 会标成「非 WebUI 启动」，只能看和审批，不能在这里终止进程。
+## 9. 升级 runbook
+
+```sh
+# 1) 取新代码（研究账号执行，别用 root）
+sudo -u misaka git -C /opt/misaka-web pull --ff-only
+
+# 2) 重新安装包体（install.sh 幂等；不会动已存在的 token 与 venv）
+sudo -u misaka /opt/misaka-web/deploy/install.sh --venv /opt/misaka-web/.venv
+
+# 3) 若前端有改动：发布机上构建后同步（服务器上不要装 node）
+#    cd web && pnpm install && pnpm exec vite build && ../scripts/sync-web.sh
+#    然后把 src/misaka_web/static 一起提交或打包发布
+
+# 4) 重启并自检
+sudo systemctl restart misaka-web
+sudo -u misaka /opt/misaka-web/.venv/bin/misaka-web doctor
+curl -sS http://127.0.0.1:8787/api/health | head -c 200
+```
+
+回滚：`git checkout <上一个 tag>` → 重跑 install.sh → restart。`audit.jsonl`、`runs.json`、token 都不在代码目录里，回滚不会丢。
+
+**前端缓存与升级**：静态资源带内容哈希，Service Worker 只缓存壳；新版本上线后旧标签页会提示「有新版本，点此刷新」。如果用户长时间不刷新而界面行为诡异，先让他硬刷新一次再看，不要先去怀疑后端。
+
+## 10. 上线前验证清单（目标机执行）
+
+- [ ] `sudo systemd-analyze verify /etc/systemd/system/misaka-web.service` 无输出（本仓未在真实 systemd 上跑过）
+- [ ] `sudo caddy validate --config /etc/caddy/Caddyfile`（或 `nginx -t`）
+- [ ] `misaka-web doctor` 全 `[ok]`（`[warn]` 逐条看过）
+- [ ] `systemctl show misaka-web -p PrivateTmp` 输出 `PrivateTmp=no`
+- [ ] 在服务进程命名空间里能看到控制 socket：`sudo nsenter -t $(systemctl show -p MainPID --value misaka-web) -m ls -d /tmp/misaka-session-*/`（有会话在跑时）
+- [ ] `curl -sS https://<域名>/api/health` 返回 `ok:true`、`research_available:true`、`board_path` 非 null
+- [ ] 手机上：登录 → 会话流式 → 研究列表 → 节点 → 来源面板 → 点一页打开 PDF
+- [ ] 断网 30 秒：界面回退到缓存壳并显示离线 banner；恢复后手动重连即可续看
+- [ ] `tail -n 5 ~/.config/misaka-web/audit.jsonl` 能看到刚才那几次写操作
