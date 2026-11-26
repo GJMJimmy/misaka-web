@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { memo, useEffect, useRef, type ReactNode } from "react";
+import Markdown from "../markdown";
 import { formatClock, isRecord, safeJson } from "../format";
 import type { Entry, SessionRunState } from "../types";
 
@@ -56,6 +57,16 @@ function blocksOf(message: Rec): unknown[] {
   return [content];
 }
 
+/** Message text is markdown (headings, lists, fences, tables). Memoized: streaming re-renders often. */
+const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
+  if (!text.trim()) return <p className="msg__text msg__text--muted">（空消息）</p>;
+  return (
+    <div className="msg__md">
+      <Markdown text={text} />
+    </div>
+  );
+});
+
 function renderToolCall(block: Rec, key: string): ReactNode {
   const name = str(block.name) || str(block.toolName) || "tool";
   const input = block.input ?? block.arguments ?? block.args ?? {};
@@ -84,7 +95,7 @@ function renderThinking(block: Rec, key: string): ReactNode {
 }
 
 function renderBlock(block: unknown, key: string): ReactNode {
-  if (typeof block === "string") return <p className="msg__text" key={key}>{block}</p>;
+  if (typeof block === "string") return <MarkdownText text={block} key={key} />;
   const record = rec(block);
   if (!record) return <p className="msg__text" key={key}>{String(block)}</p>;
   const type = str(record.type);
@@ -92,7 +103,7 @@ function renderBlock(block: unknown, key: string): ReactNode {
   if (type === "toolCall" || type === "tool_call" || type === "toolUse") return renderToolCall(record, key);
   if (type === "image") return <p className="msg__text msg__text--muted" key={key}>[图片]</p>;
   const text = str(record.text);
-  if (text) return <p className="msg__text" key={key}>{text}</p>;
+  if (text) return <MarkdownText text={text} key={key} />;
   // anything else is still data, not a blank line
   return (
     <details className="tool" key={key}>

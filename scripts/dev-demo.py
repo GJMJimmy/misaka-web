@@ -192,7 +192,7 @@ def main() -> int:
         {"type": "custom", "customType": "research_plan", "data": {"nodes": 3, "approval": "awaiting"}, "timestamp": "2026-11-26T10:00:25Z"},
         {"type": "message", "timestamp": "2026-11-26T10:00:30Z", "message": {
             "role": "assistant", "timestamp": "2026-11-26T10:00:30Z",
-            "content": [{"type": "text", "text": "计划已就绪：根节点先核捐输进项，再决定是否开第二层。"}],
+            "content": [{"type": "text", "text": "## 计划已就绪\n\n**根节点**先核 `捐输进项`，再决定是否开第二层：\n\n1. 核对捐输簿与赈济簿的**记账口径**\n2. 用 `page:12;chars:880-940` 这样的定位符回原文\n- 若两条线索冲突，则开第二层节点\n\n```python\nrows = load(\"juanzhi.csv\")\nprint(len(rows))\n```\n\n| 线索 | 指向 | 结论 |\n|---|---|---|\n| 捐输簿 | 进项 | 弹性偏大 |\n| 赈济簿 | 出项 | 弹性偏小 |"}],
         }},    ]
     socket_path = str(pathlib.Path(tempfile.gettempdir()) / "misaka-web-demo.sock")
     OwnerService(owner).start(socket_path)
