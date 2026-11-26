@@ -39,7 +39,40 @@ die()  { printf "ERROR: %s\n" "$*" >&2; exit 1; }
 run()  { if [ "$DRY_RUN" -eq 1 ]; then printf "    [dry-run] %s\n" "$*"; else "$@"; fi; }
 
 usage() {
-  sed -n "2,18p" "${BASH_SOURCE[0]}" | sed "s/^# \{0,1\}//"
+  cat <<'USAGE'
+misaka-web 安装器：venv -> 依赖 -> token -> 自检（可选：systemd / Caddy 片段）
+
+用法: ./deploy/install.sh [选项]
+
+安装位置
+  --venv DIR         虚拟环境目录（默认 <repo>/.venv；也可用 MISAKA_WEB_VENV）
+  --with-misaka      同时安装上游 misaka[providers]（研究 / 来源 / 起 run 需要；优先用本地 ../misaka）
+
+token
+  --token VALUE      直接指定 token（会留在 shell 历史里，谨慎使用）
+  --token-stdin      从 stdin 读一行：printf %s "$T" | ./deploy/install.sh --token-stdin
+  --generate         生成一个新 token（替换已有的），并只打印这一次
+  不带以上参数时：已有 token 就保留；交互终端里会提示粘贴，直接回车＝自动生成
+
+监听与服务
+  --host ADDR        绑定地址（默认 127.0.0.1）
+  --port PORT        端口（默认 8787）
+  --lan              等价于 --host 0.0.0.0，并打印安全上下文方面的代价
+  --systemd          生成 /etc/systemd/system/misaka-web.service 并启用（需要 root）
+  --user NAME        --systemd 时单元里用的账号（默认 SUDO_USER 或当前用户）
+  --print-caddy      打印 Caddy 反代片段（配合 --lan 给 tls internal 的内网版）
+
+其它
+  -y, --yes          不交互（配合 --generate 实现无人值守）
+  --dry-run          只打印将执行的命令，不创建任何东西
+  -h, --help         显示本帮助
+
+环境变量
+  MISAKA_WEB_VENV / MISAKA_WEB_PYTHON / MISAKA_WEB_TOKEN_FILE / XDG_CONFIG_HOME
+  运行期（不是安装期）另有 MISAKA_WEB_MISAKA_BIN，用来指定上游 misaka 可执行文件。
+
+运维文档: docs/ops.md
+USAGE
 }
 
 while [ "$#" -gt 0 ]; do
