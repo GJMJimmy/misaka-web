@@ -28,6 +28,26 @@ def run_checks() -> list[dict[str, Any]]:
             mode = "unknown"
         checks.append(_check("token mode", mode in {"0o600", "0o400"}, mode, fatal=False))
 
+    # 这个服务必须和研究账号共用 ~/.misaka；用 root 跑是最常见的一次性错误。
+    home = os.path.expanduser("~")
+    is_root = hasattr(os, "geteuid") and os.geteuid() == 0
+    if is_root:
+        checks.append(_check(
+            "account",
+            False,
+            f"running as root (HOME={home}): MISAKA sessions, credentials and ~/.misaka belong to the research account. "
+            "Reinstall and run as that user, or set User= in the systemd unit to it.",
+            fatal=False,
+        ))
+    else:
+        try:
+            import getpass
+
+            who = getpass.getuser()
+        except Exception:  # noqa: BLE001 - some containers have no passwd entry
+            who = "unknown user"
+        checks.append(_check("account", True, f"{who} (HOME={home})", fatal=False))
+
     static = settings.static_dir / "index.html"
     checks.append(_check("ui build", static.is_file(), str(static) if static.is_file() else f"no build at {static}; run scripts/sync-web.sh"))
 
