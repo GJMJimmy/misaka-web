@@ -43,14 +43,31 @@ def _token(*, rotate: bool) -> int:
     return 0
 
 
+LOOPBACK = {"127.0.0.1", "localhost", "::1", "0:0:0:0:0:0:0:1"}
+
+
+def _bind_warning(host: str) -> str | None:
+    """Say plainly what a non-loopback bind costs, whichever way the address was chosen."""
+    if host in LOOPBACK:
+        return None
+    return (
+        f"Warning: binding {host}, which other machines can reach.\n"
+        "  - the token and every request travel in cleartext unless TLS terminates in front;\n"
+        "  - browsers treat a plain-HTTP LAN address as an insecure context, so the offline shell,\n"
+        "    the clipboard button and notifications are unavailable (loopback and https are not);\n"
+        "  - for an intranet test prefer keeping 127.0.0.1 and putting Caddy in front, even with tls internal."
+    )
+
+
 def _serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     settings = config.settings()
     host = args.host or settings.host
     port = args.port or settings.port
-    if settings.host not in {"127.0.0.1", "localhost", "::1"} and not args.host:
-        print("Warning: binding a non-loopback address directly; put TLS in front of it.", file=sys.stderr)
+    warning = _bind_warning(host)
+    if warning:
+        print(warning, file=sys.stderr)
     uvicorn.run("misaka_web.api.app:app", host=host, port=port, log_level=getattr(args, "log_level", "info"))
     return 0
 
