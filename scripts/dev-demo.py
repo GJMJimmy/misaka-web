@@ -169,10 +169,31 @@ def main() -> int:
     catalog.mkdir(parents=True, exist_ok=True)
 
     owner = FakeOwner(session_id="sess-demo-1", instance="inst-demo-1")
+    # A realistic mix: MISAKA writes session entries ({type, message|summary|data}), not bare messages.
     owner.entries = [
-        {"role": "user", "content": [{"type": "text", "text": "庚子年间的赈灾账册，能否说明地方财政的实际弹性？"}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "账册给出三条互相冲突的线索。第一，捐输名目下的进项在灾年反而上升；第二，同一批银两在州县与督抚两级账上各记一次；第三，赈粮折色的比例与市价脱钩。所谓弹性，可能只是一种记账口径造成的幻觉。"}]},
-    ]
+        {"type": "model_change", "provider": "deepseek", "modelId": "deepseek-flash", "timestamp": "2026-11-26T10:00:00Z"},
+        {"type": "message", "timestamp": "2026-11-26T10:00:05Z", "message": {
+            "role": "user", "timestamp": "2026-11-26T10:00:05Z",
+            "content": [{"type": "text", "text": "庚子年间的赈灾账册，能否说明地方财政的实际弹性？"}],
+        }},
+        {"type": "compaction", "summary": "（演示）此前的 12 条历史被压缩成摘要。", "timestamp": "2026-11-26T10:00:09Z"},
+        {"type": "message", "timestamp": "2026-11-26T10:00:12Z", "message": {
+            "role": "assistant", "timestamp": "2026-11-26T10:00:12Z",
+            "content": [
+                {"type": "thinking", "thinking": "先看账册的三条线索，再决定把哪一条开成节点。"},
+                {"type": "text", "text": "账册给出三条互相冲突的线索。所谓弹性，可能只是记账口径造成的幻觉。"},
+                {"type": "toolCall", "name": "misaka_research_assign", "input": {"node": "root", "cards": 2}},
+            ],
+        }},
+        {"type": "message", "timestamp": "2026-11-26T10:00:20Z", "message": {
+            "role": "toolResult", "toolName": "misaka_research_assign", "timestamp": "2026-11-26T10:00:20Z",
+            "content": [{"type": "text", "text": "accepted: 2 cards queued for Sister 10032"}],
+        }},
+        {"type": "custom", "customType": "research_plan", "data": {"nodes": 3, "approval": "awaiting"}, "timestamp": "2026-11-26T10:00:25Z"},
+        {"type": "message", "timestamp": "2026-11-26T10:00:30Z", "message": {
+            "role": "assistant", "timestamp": "2026-11-26T10:00:30Z",
+            "content": [{"type": "text", "text": "计划已就绪：根节点先核捐输进项，再决定是否开第二层。"}],
+        }},    ]
     socket_path = str(pathlib.Path(tempfile.gettempdir()) / "misaka-web-demo.sock")
     OwnerService(owner).start(socket_path)
     (catalog / "sess-demo-1.json").write_text(

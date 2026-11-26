@@ -190,6 +190,10 @@ async def _stream(record: catalog.SessionRecord, request: Request) -> AsyncItera
     except control.ControlError as error:
         yield _sse("error", {"code": error.code, "message": str(error)})
         return
+    if first.get("read_only"):
+        # the owner has exited: one snapshot is the whole stream
+        yield _sse("snapshot", first)
+        return
     cursor, stream_cursor = first.get("cursor"), first.get("stream_cursor")
     state = first.get("state")
     yield _sse("snapshot", first)

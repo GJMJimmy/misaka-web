@@ -6,6 +6,7 @@ whose ack never arrives is reported as unconfirmed and is never resent automatic
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from . import transport
@@ -42,6 +43,15 @@ async def _request(record: Any, operation: str, *, timeout: float = 10.0, **argu
 
 
 async def snapshot(record: Any, *, cursor: Any = None, stream_cursor: Any = None) -> dict[str, Any]:
+    """A live snapshot from the owner; when the owner has exited, the transcript from disk."""
+    control = record.get("control") if isinstance(record, dict) else getattr(record, "control", None)
+    if not control or not os.path.exists(str(control)):
+        from . import history
+
+        try:
+            return history.saved_snapshot(record)
+        except history.HistoryUnavailable as error:
+            raise ControlError(str(error), code="no_control") from error
     extra: dict[str, Any] = {}
     if cursor is not None:
         extra["cursor"] = cursor

@@ -13,7 +13,16 @@ export type Session = {
 };
 
 /** 上游会话条目，原样透传（content 形状未知，渲染层做防御式处理）。 */
-export type Entry = { role: string; content: unknown; ts?: string };
+// A session entry, not a bare message: {type, message|summary|data, timestamp}. Older mocks
+// (and the streaming frame) hand us message shapes directly, so both are allowed.
+export type Entry = {
+  type?: string;
+  role?: string;
+  content?: unknown;
+  message?: unknown;
+  timestamp?: string;
+  [key: string]: unknown;
+};
 
 export type Snapshot = {
   id: string;
@@ -26,6 +35,8 @@ export type Snapshot = {
   entries: Entry[] | null;
   cursor: unknown;
   stream_cursor: unknown;
+  /** 属主进程已退出：历史来自 transcript，只读。 */
+  read_only?: boolean;
 };
 
 export type Delta = {

@@ -38,6 +38,7 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
   const [conn, setConn] = useState<ConnState>("connecting");
   const [banner, setBanner] = useState<BannerProps | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
   const [reconnectNonce, setReconnectNonce] = useState(0);
 
   const retry = useCallback(() => setReconnectNonce((n) => n + 1), []);
@@ -48,6 +49,7 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
     setRunState(snapshot.state);
     setPaused(snapshot.paused);
     setSessionError(snapshot.error ?? null);
+    setReadOnly(snapshot.read_only === true);
   }, []);
 
   // delta 只追加/原位更新，绝不重排已渲染条目。
@@ -165,7 +167,7 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
     }
   };
 
-  const canControl = session?.has_control ?? true;
+  const canControl = !readOnly && (session?.has_control ?? true);
 
   return (
     <div className="session">
@@ -206,7 +208,7 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
       <Composer
         onSend={handleSend}
         disabled={!canControl}
-        disabledHint="本会话无控制权，只能只读"
+        disabledHint={readOnly ? "这个会话已经结束，只能查看历史" : "本会话无控制权，只能只读"}
         hint={paused ? "会话已暂停：恢复后才会处理新输入。" : undefined}
       />
     </div>
