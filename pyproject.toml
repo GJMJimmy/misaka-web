@@ -13,6 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The research surface (runs, nodes, sources, starting runs) reads MISAKA's own board, so it
+# needs MISAKA in the same interpreter. Sessions-only installs can skip it.
+research = ["misaka[providers]>=0.19.30,<0.21"]
 dev = ["pytest>=8", "pytest-asyncio>=1", "httpx>=0.28", "misaka[providers]>=0.19.30,<0.21"]
 
 [project.scripts]

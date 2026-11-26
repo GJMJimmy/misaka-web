@@ -417,7 +417,7 @@ input 返回 502 `no_control` / `unconfirmed`；日志里出现 ENOENT / EACCES 
 
 WebUI 可以代你起 `misaka research`，但**服务进程必须能调用上游 CLI**：
 
-- 默认用 `python -m misaka research …`，即在同一个 venv 里（`install.sh --with-misaka` 已经覆盖）；
+- 默认用 `python -m misaka research …`，即在同一个 venv 里（`install.sh --with-misaka`（等价于 `pip install '.[research]'`）已经覆盖）；
 - 上游装在别处时，用 `Environment=MISAKA_WEB_MISAKA_BIN=/path/to/misaka` 指定；
 - 生成模型凭据走研究账号的 `~/.misaka`，因此服务必须以该账号运行（同 §2.4）；
 - 起 run 的目录受白名单限制：`MISAKA_WEB_WORKSPACE_ROOT`（默认 `~/Documents`），越界 422。

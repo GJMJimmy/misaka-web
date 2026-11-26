@@ -40,7 +40,7 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬�
 
 ```sh
 python -m venv .venv && . .venv/bin/activate
-pip install -e '.[dev]'          # 研究面需要 misaka 在同一环境里
+pip install -e '.[research]'     # 研究与来源面需要 misaka 在同一环境；只测会话可用 .（不加 extra）
 python -m misaka_web token       # 生成 token（0600）
 python -m misaka_web serve       # 127.0.0.1:8787
 python -m misaka_web doctor      # 部署自检：token/产物/看板/控制 socket/工作区
