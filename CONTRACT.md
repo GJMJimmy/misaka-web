@@ -189,6 +189,47 @@ type Source = {
 
 `entries` 只包含成功的写操作：`tell` / `stop` / `terminate` / `limits` / `run_start` / `resume`。文件是 `<token 目录>/audit.jsonl`，一行一个 JSON。
 
+
+### 3.7 配置台（M5：provider/model、密钥、Sisters、项目）
+
+> 这是本项目第一次允许 web **写** `~/.misaka`。每个写端点都必须二次确认 + 审计；密钥写入后**永不回读明文**，只回显 `hint`（前 4 位 + 长度）。
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| GET | `/api/settings/model` | — | `{global:{provider,model,thinking}, roles:[{role, settings}], providers:[Provider]}`（**不含**模型清单，只给 `model_count`） |
+| GET | `/api/settings/models` | `?provider=deepseek` | `{provider, models:[{id,name}]}`；未知 provider → 422 |
+| PUT | `/api/settings/model` | `{provider, model, role?}` | `{ok, role, provider, model}`；模型不在目录里 → 422 |
+| GET | `/api/settings/keys` | — | `{path, keys:[{name,label,configured,source,hint}]}` |
+| PUT | `/api/settings/keys/{name}` | `{value}` | `{ok, name, hint}`；名字不在白名单或值太短 → 422 |
+| DELETE | `/api/settings/keys/{name}` | — | `{ok, name}` |
+| GET | `/api/sisters` | — | `{sisters:[{id,specialty,model,thinking}]}` |
+| POST | `/api/sisters` | `{id, specialty?, model?, thinking?}` | `{ok, id, message}` |
+| PATCH | `/api/sisters/{id}` | `{specialty?, model?, thinking?}` | `{ok, id, changed:[...]}`；`model:""` 表示取消钉死、回到全局默认 |
+| DELETE | `/api/sisters/{id}` | `{confirm:true}` | `{ok, id, message}`；缺 confirm → 422 `confirmation_required` |
+| GET | `/api/projects` | — | `{root, projects:[{name,path,has_project_md,is_git,has_sources,runs}]}` |
+| POST | `/api/projects` | `{name, git?}` | `{ok, name, path, actions:[...]}`；重名/非空/非法名字 → 422 |
+
+```ts
+type Provider = {
+  id: string; name: string;
+  configured: boolean; source?: string | null; keyless: boolean;
+  model_count: number;      // 模型清单按 provider 懒加载：GET /api/settings/models?provider=
+};
+type RoleDefault = { role: string; settings: Record<string, unknown> };  // role = "last-order" | "sister:<id>"
+type KeyEntry = { name: string; label: string; configured: boolean; source?: string | null; hint: string };
+type Sister = { id: string; specialty: string; model: string; thinking: string };
+type ProjectEntry = { name: string; path: string; has_project_md: boolean; is_git: boolean; has_sources: boolean; runs: number };
+```
+
+**界面要求（M5）**
+
+1. 新入口「设置」`#/settings`，三块：`模型与密钥`、`Sisters`、`项目`。
+2. 模型：先展示全局（provider 下拉 → 该 provider 的模型下拉），下面列出每个角色的覆盖（`跟随全局` / 具体 `provider/model`）；保存后**回读** `/api/settings/model`。
+3. 密钥：每行 label + 状态（已设置·来源 / 未设置）+ hint；`设置/更换` 打开密码输入 + 二次确认（说明「将写入 ~/.misaka/.env，0600」）；成功后只显示新的 hint，**任何时刻都不显示明文**；`删除` 也要确认。
+4. Sisters：卡片（ID、专长、模型/thinking）+ `新建`（ID、专长、可选 provider/model、thinking）+ `编辑`（专长文本域、模型、thinking）+ `删除`（确认层写明「她的卡片与会话会保留」）。
+5. 项目：列出工作区根下的目录（名字、git 徽标、PROJECT.md、sources、已有 run 数）+ `新建`（名字 + 是否 git init）；成功后显示路径与 actions，并提示可以到「研究」里起 run。
+6. 所有写操作：二次确认 → 提交 → **回读**；服务端 422 的 `message` 原样展示；失败不要乐观更新。
+7. mock 覆盖以上全部端点（含 422 与 `confirmation_required`）。
 ## 4. 上游接缝（只读参考，供实现者对齐语义）
 
 - 控制协议：`misaka/core/session_control.py:1-5,29-46,186-214`（一命令一 ack；`snapshot` 支持 cursor 增量）

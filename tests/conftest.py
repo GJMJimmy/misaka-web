@@ -25,6 +25,8 @@ def temp_home(tmp_path, monkeypatch):
     static = tmp_path / "static"
     static.mkdir()
     monkeypatch.setenv("MISAKA_WEB_MISAKA_HOME", str(home))
+    # upstream resolves its own home from MISAKA_HOME; keep it inside the test too
+    monkeypatch.setenv("MISAKA_HOME", str(home))
     monkeypatch.setenv("MISAKA_WEB_TOKEN_FILE", str(token))
     monkeypatch.setenv("MISAKA_WEB_STATIC", str(static))
     monkeypatch.delenv("MISAKA_WEB_DEV_ORIGIN", raising=False)
