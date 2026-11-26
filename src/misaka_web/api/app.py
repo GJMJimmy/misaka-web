@@ -79,12 +79,14 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
+        """Public by design: the fastest answer to 'why does nothing work' after a deploy."""
         return {
             "ok": True,
             "version": __version__,
             "misaka_version": _misaka_version(),
             "board_schema": _board_schema(),
             "uptime_s": round(time.monotonic() - STARTED, 3),
+            **_environment(),
         }
 
     @app.post("/api/login")
@@ -157,6 +159,8 @@ def create_app() -> FastAPI:
 
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(path: str) -> FileResponse:
+        if path == "api" or path.startswith("api/"):
+            _fail(404, f"No such endpoint: /{path}")
         root = config.settings().static_dir.resolve()
         if path:
             candidate = (root / path).resolve()
@@ -210,6 +214,41 @@ async def _stream(record: catalog.SessionRecord, request: Request) -> AsyncItera
         elif time.monotonic() - last_beat >= HEARTBEAT_SECONDS:
             last_beat = time.monotonic()
             yield ": ping\n\n"
+
+
+def _environment() -> dict[str, Any]:
+    """Facts that separate 'no sessions yet' from 'this process cannot see them'."""
+    from ..bridge import catalog
+
+    directory = catalog.catalog_dir()
+    records = catalog.load_records() if directory.is_dir() else []
+    return {
+        "sessions_root": str(config.sessions_root()),
+        "catalog_present": directory.is_dir(),
+        "catalog_records": len(records),
+        "sessions_live": sum(1 for record in records if record.has_control),
+        "control_parent": _control_parent_seen(),
+    }
+
+
+def _control_parent_seen() -> str | None:
+    """Where MISAKA keeps control sockets: /tmp on POSIX (session_catalog._CONTROL_PARENT).
+
+    Report a boolean-ish string so a deploy that hides /tmp (systemd PrivateTmp=yes) is
+    diagnosed from /api/health instead of from a UI where every session looks saved.
+    """
+    import os
+    import sys
+    import tempfile
+
+    parent = tempfile.gettempdir() if sys.platform == "win32" else "/tmp"
+    try:
+        entries = os.listdir(parent)
+    except OSError:
+        return "unreadable"
+    if any(name.startswith("misaka-session-") for name in entries):
+        return "visible"
+    return "empty"
 
 
 def _misaka_version() -> str | None:

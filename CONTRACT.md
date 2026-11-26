@@ -9,6 +9,7 @@
 2. 审批 = 向属主会话发一条消息，不是写看板。
 3. 上游目录只读；本包只通过进程/协议/sqlite 只读方式与它协作。
 4. 服务器不装 node：前端构建产物随包发布，运行时只跑 Python。
+5. 控制 socket 在系统临时目录（POSIX 为 `/tmp/misaka-session-*/control.sock`，见上游 `misaka/core/session_catalog.py:107-108`），因此**部署时禁止给服务开 `PrivateTmp=yes`**：私有 /tmp 会让所有会话不可达（症状：全部 `has_control:false`、input 502）。`/api/health` 的 `control_parent` 字段就是为这条准备的。
 
 ## 1. 目录与归属
 
@@ -40,7 +41,7 @@ misaka-web/
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| GET | `/api/health` | — | `{ok, version, misaka_version, board_schema, uptime_s}` |
+| GET | `/api/health` | — | `{ok, version, misaka_version, board_schema, uptime_s, sessions_root, catalog_present, catalog_records, sessions_live, control_parent}`（新增字段为诊断用，客户端可忽略） |
 | POST | `/api/login` | `{token}` | `{ok:true}` + Set-Cookie |
 | POST | `/api/logout` | — | `{ok:true}` |
 | GET | `/api/me` | — | `{authenticated:true, version}` |
