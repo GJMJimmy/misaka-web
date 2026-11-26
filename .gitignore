@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+node_modules/
+web/dist/
+src/misaka_web/static/*
+!src/misaka_web/static/.gitkeep
+dist/
+build/
+*.egg-info/

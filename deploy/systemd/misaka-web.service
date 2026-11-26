@@ -1,0 +1,93 @@
+# MISAKA WebUI —— systemd 单元（M0）
+#
+# 安装：
+#   sudo cp deploy/systemd/misaka-web.service /etc/systemd/system/misaka-web.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now misaka-web
+# 日志：journalctl -u misaka-web -f
+# 文档：docs/ops.md
+#
+# 必须按你的环境修改的只有下面标了「站点配置」的一段：User= / Group= / HOME /
+# ExecStart 的 venv 路径 / ReadWritePaths 里的家目录。
+#
+# User= 请填研究会话的属主账号（通常就是你跑 misaka 的那个研究账号），不要用 root：
+#   本服务通过上游控制 socket 与 ~/.misaka 里的会话交互（CONTRACT 不变量 1、3），
+#   socket 与目录的属主/权限由上游进程建立。换成别的账号，症状是
+#   控制 socket 不可达（EACCES/ENOENT），见 docs/ops.md 故障排查表。
+
+[Unit]
+Description=MISAKA WebUI (misaka-web)
+Documentation=file:///opt/misaka-web/docs/ops.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# --- 站点配置（按实际环境修改） -------------------------------------------
+User=misaka
+Group=misaka
+WorkingDirectory=/opt/misaka-web
+Environment=HOME=/home/misaka
+# 只监听回环：对外由 Caddy 终止 TLS 再反代进来（见 deploy/caddy/）
+Environment=MISAKA_WEB_HOST=127.0.0.1
+Environment=MISAKA_WEB_PORT=8787
+Environment=MISAKA_WEB_TOKEN_FILE=/home/misaka/.config/misaka-web/token
+# 可选：前端产物目录，默认就是包内 static/，一般不用设
+#Environment=MISAKA_WEB_STATIC=/opt/misaka-web/src/misaka_web/static
+# 生产环境不要设置 MISAKA_WEB_DEV_ORIGIN：那是开发期的 CORS 放行开关
+
+# venv 由 deploy/install.sh 创建；装到别处就改这一行
+ExecStart=/opt/misaka-web/.venv/bin/misaka-web serve
+
+# --- 进程与日志 -----------------------------------------------------------
+Restart=on-failure
+RestartSec=5s
+# uvicorn 收到 SIGINT 会优雅关闭；SSE 长连接留 20s 收尾时间
+KillSignal=SIGINT
+TimeoutStopSec=20s
+# 日志统一走 journald：不写文件，避开轮转与权限问题
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=misaka-web
+# 每个浏览器页签的 SSE 是一条长连接，fd 上限给足
+LimitNOFILE=8192
+UMask=0077
+
+# --- 最小硬化（需要 systemd >= 245；Debian 12 / Ubuntu 22.04+ 都满足） -----
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+# 只读 /usr /boot /etc：本服务不需要写系统目录
+ProtectSystem=full
+# 家目录整体只读。上游会话目录只应经由控制 socket 访问，
+# 这一项就是防住"某个 bug 顺手写坏 ~/.misaka"这类事故。
+ProtectHome=read-only
+# 从 ProtectHome 的只读视图里放行的两处（systemd 不支持 ~ 展开，写绝对路径）：
+#   /home/misaka/.misaka        = ~/.misaka，上游会话根。本服务只读它
+#                                （不变量 1：永不直接读写 session 文件），
+#                                这里显式列出是为了让目录/控制 socket 在本单元的
+#                                挂载视图里可见可进入；同一账号下的上游进程也要能
+#                                就地更新它，故不在这里降级为只读。
+#   /home/misaka/.config/misaka-web = token 目录，必须可写：
+#                                token 轮换（misaka-web token）会重写其中的文件。
+# 若要更严格，可把 .misaka 换成 ReadOnlyPaths=（本服务确实从不写它）。
+ReadWritePaths=/home/misaka/.misaka /home/misaka/.config/misaka-web
+#ReadOnlyPaths=/home/misaka/.misaka
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+# 只需要 unix socket（控制 socket）与回环 TCP（uvicorn）
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# 可选、未在本仓验证：启用后若 Python 报 OSError 再关掉
+#SystemCallFilter=@system-service
+#MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target

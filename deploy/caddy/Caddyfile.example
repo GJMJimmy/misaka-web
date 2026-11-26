@@ -1,0 +1,93 @@
+# MISAKA WebUI —— Caddy 反向代理示例（M0）
+#
+# 拓扑：浏览器 --HTTPS--> Caddy --明文 HTTP--> 127.0.0.1:8787 (misaka-web)
+# 安装：
+#   sudo cp deploy/caddy/Caddyfile.example /etc/caddy/Caddyfile   # 改成你的域名/邮箱
+#   sudo caddy validate --config /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+# 前提：域名 A/AAAA 已指向本机，80/443 可达；Caddy 会自己申请证书。
+# 用 nginx 的环境：见 deploy/nginx/misaka-web.conf.example（可选，等价配置）
+#
+# 这个文件存在的核心目的只有一个：SSE 不能被任何一层缓冲。
+# 下面三处配置（encode 排除、flush_interval、timeouts）各自负责一类
+# "点了运行、界面没反应、过一会儿突然刷出一大段" 的故障。
+
+{
+	# ACME 账号邮箱，按需改成你的邮箱（收证书告警用）
+	email ops@example.com
+
+	# 全局超时：SSE 是长连接，写侧必须不设超时。
+	# write 0 = 不限制响应写时长；read_header/read_body 仍然收紧，挡慢速攻击。
+	# 上游每 25s 发一条 ": ping" 心跳，idle 5m 足够让空闲连接活到下一次心跳。
+	servers {
+		timeouts {
+			read_header 30s
+			read_body 30s
+			write 0
+			idle 5m
+		}
+	}
+}
+
+misaka.example.com {
+	# ---------------------------------------------------------------------
+	# 1) 压缩：必须排除 SSE 路径
+	#    gzip/zstd 要等压缩窗口攒满才吐数据，事件流会被攒住几十 KB 才发一次。
+	#    Caddy 的 encode 按请求匹配，所以用路径匹配器把事件流排除在外。
+	# ---------------------------------------------------------------------
+	@compressible not path /api/sessions/*/events
+	encode @compressible zstd gzip
+
+	# ---------------------------------------------------------------------
+	# 2) 反代：flush_interval -1 = 上游每到一个字节就立刻冲刷，不做缓冲。
+	#    这是"逐字流式"的关键；缺这一行长连接可能被 hold 到缓冲区满。
+	# ---------------------------------------------------------------------
+	reverse_proxy 127.0.0.1:8787 {
+		flush_interval -1
+
+		# transport http：显式写出上游参数，便于按需调整。
+		#   - 上游是回环上的明文 HTTP，不需要 TLS
+		#   - keepalive 复用连接，避免每条事件流都新建 TCP
+		#   - response_header_timeout 只约束"首字节之前"，不影响已建立的事件流
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 30s
+			keepalive 30s
+		}
+
+		# 真实客户端地址带给上游（审计/排查用）；X-Forwarded-* Caddy 默认已带
+		header_up X-Real-IP {remote_host}
+
+		# 不要再在这条链路上加 nginx 式的 proxy_read_timeout / proxy_buffering 等价物：
+		# 任何短于 25s 心跳的读超时都会先于心跳把连接掐掉（症状同"SSE 卡住"）。
+	}
+
+	# ---------------------------------------------------------------------
+	# 3) 安全响应头：M0 是单用户系统，认证靠 token / HttpOnly cookie，不靠 IP 白名单
+	# ---------------------------------------------------------------------
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		# 别急着上严格 CSP：Vite 产物有内联样式/预加载，先在浏览器控制台用
+		# report-only 跑一遍（见 docs/ops.md 加固清单）再加强制。
+		-Server
+	}
+
+	# 可选：访问日志（目录需存在且 caddy 用户可写，通常先 sudo install -d -o caddy -g caddy /var/log/caddy）
+	#log {
+	#	output file /var/log/caddy/misaka-web-access.log {
+	#		roll_size 10MiB
+	#		roll_keep 5
+	#	}
+	#	format json
+	#}
+}
+
+# 说明：/api/health 也走同一条反代链路，不需要单独 location；
+# 它是判断"服务活着 / 前端/上游版本是否匹配"的最快手段：
+#   curl -sS https://misaka.example.com/api/health

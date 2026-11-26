@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "misaka-web"
+version = "0.1.0"
+description = "Mobile-first web UI for MISAKA research runs"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=1", "httpx>=0.28", "misaka[providers]>=0.19.30,<0.21"]
+
+[project.scripts]
+misaka-web = "misaka_web.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/misaka_web"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
