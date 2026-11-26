@@ -95,6 +95,14 @@ cd /opt/misaka-web
 
 安装器不装系统包、不改防火墙；唯一需要 root 的是 `--systemd`。
 
+**上游 misaka 只从 git 发版**：PyPI 上那个叫 `misaka` 的包是另一个项目（FSX/misaka，markdown 绑定，版本 0.3.x–2.1.x），所以任何 `pip install misaka>=0.19` 都会报 `Could not find a version that satisfies the requirement`。正确做法是 `--with-misaka`（安装器会用 git tag `v0.19.30`，或优先用本地 `../misaka` checkout），或手动：
+
+```sh
+.venv/bin/python -m pip install 'misaka[providers] @ git+https://github.com/Luciole-Studio/Misaka-Agent.git@v0.19.30'
+```
+
+github 不可达时：把上游 clone 到 `<repo>/../misaka`，`--with-misaka` 会自动用它。
+
 ### 2.4 systemd
 
 ```sh
@@ -363,6 +371,10 @@ sudo systemctl start misaka-web
 - HTTP/2 多路复用下同一域名的并发限制：同时开很多页签时偶发排队，属正常现象。
 - 契约里**客户端不自动重连**：断线时 UI 显示 banner + 手动重连按钮是设计行为，不是 bug。
 - 服务端 502 + 投递未确认：这是上游没 ack，不是 SSE 问题；不要自动重发。
+
+### 装不上 misaka（Could not find a version that satisfies the requirement misaka<0.21,>=0.19.30）
+
+这是 PyPI 同名不同包：PyPI 的 `misaka` 是 markdown 绑定（0.3.x–2.1.x），上游 MISAKA 从不发 PyPI。用 `--with-misaka` 或 git 直链安装，别用版本范围。
 
 ### 控制 socket 不可达
 

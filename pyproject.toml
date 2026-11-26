@@ -15,11 +15,23 @@ dependencies = [
 [project.optional-dependencies]
 # The research surface (runs, nodes, sources, starting runs) reads MISAKA's own board, so it
 # needs MISAKA in the same interpreter. Sessions-only installs can skip it.
-research = ["misaka[providers]>=0.19.30,<0.21"]
-dev = ["pytest>=8", "pytest-asyncio>=1", "httpx>=0.28", "misaka[providers]>=0.19.30,<0.21"]
+#
+# MISAKA is NOT on PyPI: the package there called misaka is an unrelated markdown binding
+# (FSX/misaka, 0.3.x-2.1.x). Upstream ships from git, so this extra points at the release tag
+# this bridge was built and tested against.
+research = ["misaka[providers] @ git+https://github.com/Luciole-Studio/Misaka-Agent.git@v0.19.30"]
+dev = [
+  "misaka[providers] @ git+https://github.com/Luciole-Studio/Misaka-Agent.git@v0.19.30",
+  "pytest>=8", "pytest-asyncio>=1", "httpx>=0.28",
+]
 
 [project.scripts]
 misaka-web = "misaka_web.__main__:main"
+
+[tool.hatch.metadata]
+# 上游 MISAKA 只从 git 发版（PyPI 上的 misaka 是另一个项目），所以 research/dev 里的
+# 依赖是直链。hatchling 默认拒绝这种写法；这个包不打算上 PyPI，因此显式放开。
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/misaka_web"]

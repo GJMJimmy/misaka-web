@@ -148,15 +148,25 @@ if [ "$DRY_RUN" -eq 0 ]; then
 fi
 
 # --- 3. 安装本包装与依赖 ---------------------------------------------------
-EXTRAS=""
-[ "$WITH_MISAKA" -eq 1 ] && EXTRAS="[research]"
-say "安装 misaka-web$EXTRAS（可编辑安装，改代码不用重装）"
+MISAKA_REF="${MISAKA_WEB_MISAKA_REF:-v0.19.30}"
+MISAKA_GIT="misaka[providers] @ git+https://github.com/Luciole-Studio/Misaka-Agent.git@${MISAKA_REF}"
+say "安装 misaka-web（可编辑安装，改代码不用重装）"
 run "$VENV_PY" -m pip install --upgrade pip || warn "pip 升级失败，继续（离线或受限环境可忽略）"
-if [ -f "$REPO_ROOT/../misaka/pyproject.toml" ] && [ "$WITH_MISAKA" -eq 1 ]; then
-  echo "    发现本地上游 checkout，优先用它：$REPO_ROOT/../misaka"
-  run "$VENV_PY" -m pip install -e "$REPO_ROOT/../misaka[providers]"
+
+if [ "$WITH_MISAKA" -eq 1 ]; then
+  # 注意：PyPI 上那个叫 misaka 的包是另一个项目（FSX/misaka，markdown 绑定），
+  # 上游 MISAKA 只从 git 发；所以这里显式用 git 地址，并给出自己的错误提示。
+  if [ -f "$REPO_ROOT/../misaka/pyproject.toml" ]; then
+    echo "    发现本地上游 checkout，优先用它：$REPO_ROOT/../misaka"
+    run "$VENV_PY" -m pip install -e "$REPO_ROOT/../misaka[providers]" ||
+      die "本地上游 checkout 安装失败；改用 git 安装：$VENV_PY -m pip install \"$MISAKA_GIT\""
+  else
+    echo "    从 git 安装上游 MISAKA（$MISAKA_REF）；PyPI 上的 misaka 是另一个项目，不能用"
+    run "$VENV_PY" -m pip install "$MISAKA_GIT" ||
+      die "上游 MISAKA 装不上。检查到 github.com 的连通性与 git 是否可用，或把上游 clone 到 $REPO_ROOT/../misaka 后重跑"
+  fi
 fi
-run "$VENV_PY" -m pip install -e "$REPO_ROOT$EXTRAS"
+run "$VENV_PY" -m pip install -e "$REPO_ROOT"
 
 # --- 4. token --------------------------------------------------------------
 say "配置访问 token"
@@ -319,6 +329,6 @@ echo "    自检：  $VENV_DIR/bin/misaka-web doctor"
 echo "    文档：  $REPO_ROOT/docs/ops.md"
 if [ "$WITH_MISAKA" -eq 0 ]; then
   echo ""
-  echo "    注意：没有装 misaka，会话面可用，研究/来源/起 run 会返回 503。"
+  echo "    注意：没有装 misaka，会话面可用，研究/来源/起 run 会返回 503（misaka 不在 PyPI，只能从 git 或本地 checkout 装）。"
   echo "          需要时重跑：./deploy/install.sh --with-misaka"
 fi

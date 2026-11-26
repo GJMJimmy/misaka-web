@@ -41,6 +41,9 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬�
 ```sh
 python -m venv .venv && . .venv/bin/activate
 pip install -e '.[research]'     # 研究与来源面需要 misaka 在同一环境；只测会话可用 .（不加 extra）
+# 注意：misaka 不在 PyPI —— PyPI 上那个 misaka 是另一个项目（markdown 绑定）。
+#      [research] 用的是 git 直链（tag v0.19.30）；github 不可达时请用本地 checkout：
+#      pip install -e /path/to/Misaka-Agent && pip install -e .
 python -m misaka_web token       # 生成 token（0600）
 python -m misaka_web serve       # 127.0.0.1:8787
 python -m misaka_web doctor      # 部署自检：token/产物/看板/控制 socket/工作区
