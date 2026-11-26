@@ -49,6 +49,27 @@ def test_key_is_written_to_env_masked_and_removed(client, auth, home):
     assert "DEEPSEEK_API_KEY" not in env_file.read_text(encoding="utf-8")
 
 
+def test_a_saved_key_makes_the_provider_configured_without_a_restart(client, auth):
+    """The bug the phone found: .env had the key, the provider still read "no key".
+
+    The server process never loaded ~/.misaka/.env, and the availability snapshot was not
+    refreshed, so /api/settings/model reported configured=false.
+    """
+    try:
+        before = client.get("/api/settings/model", headers=auth).json()
+        deepseek = next(item for item in before["providers"] if item["id"] == "deepseek")
+        assert deepseek["configured"] is False
+
+        client.put("/api/settings/keys/DEEPSEEK_API_KEY", json={"value": "sk-live-0123456789abcdef"}, headers=auth)
+        after = client.get("/api/settings/model", headers=auth).json()
+        deepseek = next(item for item in after["providers"] if item["id"] == "deepseek")
+        assert deepseek["configured"] is True, "a key just saved must read back as configured"
+
+        client.delete("/api/settings/keys/DEEPSEEK_API_KEY", headers=auth)
+    finally:
+        os.environ.pop("DEEPSEEK_API_KEY", None)
+
+
 def test_unknown_key_name_is_refused(client, auth):
     assert client.put("/api/settings/keys/PATH", json={"value": "x" * 12}, headers=auth).status_code == 422
     assert client.put("/api/settings/keys/OPENAI_API_KEY", json={"value": "short"}, headers=auth).status_code == 422

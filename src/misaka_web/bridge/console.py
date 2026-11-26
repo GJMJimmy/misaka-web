@@ -78,8 +78,14 @@ async def _runtime():
         from misaka.cli.auth_overview import create_auth_runtime
     except Exception as error:  # noqa: BLE001
         raise board.BoardUnavailable(str(error) or "MISAKA is not importable here") from error
-    # read_only: the console reads the catalog and credential status; it never refreshes tokens
-    auth_runtime = await create_auth_runtime(read_only=True, refresh=False)
+    # The documented key store is ~/.misaka/.env; the CLI loads it at start-up, so a long-lived
+    # server must do the same or every provider reads as "no key configured".
+    from misaka.config import env as env_file
+
+    env_file.load()
+    # refresh builds the local availability snapshot (allowNetwork=False): without it the
+    # provider status reports False even when the key is right there in the environment.
+    auth_runtime = await create_auth_runtime(read_only=True, refresh=True)
     return auth_runtime.runtime
 
 
@@ -231,6 +237,11 @@ def set_key(name: str, value: str) -> dict[str, Any]:
     if len(text) < 8:
         raise SettingsError("That does not look like an API key (shorter than 8 characters).")
     modules["env"].write({name: text})
+    # apply it now: the next /api/settings/model must not wait for a restart to say "configured"
+    try:
+        modules["env"].load()
+    except Exception:  # noqa: BLE001 - a failed re-read leaves the file write intact
+        pass
     return {"ok": True, "name": name, "hint": _hint(text)}
 
 
@@ -239,6 +250,7 @@ def clear_key(name: str) -> dict[str, Any]:
     if name not in KEY_WHITELIST:
         raise SettingsError(f"{name} is not a key this console manages.")
     modules["env"].write({}, remove=(name,))
+    os.environ.pop(name, None)
     return {"ok": True, "name": name}
 
 
