@@ -515,3 +515,23 @@ curl -sS http://127.0.0.1:8787/api/health | head -c 200
 - 所有写操作都进 `audit.jsonl`（`model` / `key_set` / `key_clear` / `sister_add` / `sister_edit` / `sister_remove` / `project_create`），`key_set` 只记 hint，不记值；
 - 删除 Sister 需要 `confirm:true`；项目名与 Sister ID 有白名单正则，`../` 之类直接 422；
 - `MISAKA_*` 开头的环境变量被上游拒绝，所以网页碰不到 MISAKA 自己的设置变量。
+## 12. 终端（M7）
+
+「⋯ → 终端」给你一个浏览器里的真终端，用来跑那些**只在 TUI 里解析**的斜杠命令（`/research`、`/read`、`/sister`…）。
+对话输入框发的任何文本都是「对 agent 说话」（控制 socket 只把它当提示词交给模型），所以命令必须走这里。
+
+| profile | 启动 | 需要 PTY |
+|---|---|---|
+| `shell` | 服务账号的登录 shell | 否（无 PTY 时退化为管道，仅非交互命令） |
+| `misaka` | `misaka chat` | 是 |
+| `panel` | `misaka panel`（完整 TUI） | 是 |
+| `attach` | `misaka chat --attach --session <路径>` | 是 |
+
+**只在 Linux/macOS 上有 PTY**。Windows 上没有 POSIX PTY，`misaka/panel/attach` 会在取票时被直接拒绝（`pty_unavailable`），`shell` 退化为管道模式。
+
+安全与限制：
+
+- 票据：`POST /api/terminal/ticket` 走 Bearer 授权，发一次性票据（30 秒，绑定 UA）；WebSocket 只认票据，不接受长期 token。
+- 并发：`MISAKA_WEB_TERMINAL_MAX`（默认 1）。
+- 审计：`terminal_open` / `terminal_close`（profile、cwd、时长、退出码）；**不记录按键内容**。
+- 终端里的进程以服务账号身份运行——和 agent 本身同一权限，别把服务开成 root（见 §1 的账号说明）。

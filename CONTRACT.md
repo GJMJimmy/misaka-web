@@ -230,6 +230,53 @@ type ProjectEntry = { name: string; path: string; has_project_md: boolean; is_gi
 5. 项目：列出工作区根下的目录（名字、git 徽标、PROJECT.md、sources、已有 run 数）+ `新建`（名字 + 是否 git init）；成功后显示路径与 actions，并提示可以到「研究」里起 run。
 6. 所有写操作：二次确认 → 提交 → **回读**；服务端 422 的 `message` 原样展示；失败不要乐观更新。
 7. mock 覆盖以上全部端点（含 422 与 `confirmation_required`）。
+
+### 3.8 终端（M7：真 PTY，浏览器里的 xterm）
+
+> 目的：**不用 SSH 就能在手机上跑 MISAKA 的命令**。斜杠命令由交互式 TUI 解析，控制 socket 只把文本当提示词（`window.py:319`），所以必须有真正的终端。
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| POST | `/api/terminal/ticket` | `{profile, cwd?, arg?}` | `{ticket, ws_url, expires_in, profile, cwd, cols, rows}`；未知 profile → 422 `bad_profile`；越界 cwd → 422；并发超限 → 429 `too_many_terminals`；本机无 PTY → 501 `pty_unavailable` |
+| GET | `/api/terminal/ws?ticket=…` | — | WebSocket 升级；票据 30 秒有效、一次性、绑定当前客户端 |
+
+```ts
+type Profile = "shell" | "misaka" | "panel" | "attach";
+type Ticket = { ticket: string; ws_url: string; expires_in: number; profile: Profile; cwd: string; cols: number; rows: number };
+// 客户端 → 服务端（JSON 文本帧）
+type ClientFrame = { type: "input"; data: string } | { type: "resize"; cols: number; rows: number } | { type: "ping" };
+// 服务端 → 客户端（JSON 文本帧）
+type ServerFrame =
+  | { type: "output"; data: string }      // 原样喂给 xterm.write()
+  | { type: "exit"; code: number | null; signal?: string | null }
+  | { type: "error"; code: string; message: string }
+  | { type: "pong" };
+```
+
+**profile**
+
+| profile | 启动什么 |
+|---|---|
+| `shell` | 服务账号的登录 shell（`$SHELL` 或 `/bin/bash -l`），cwd 由 `cwd` 决定 |
+| `misaka` | `misaka chat`（Last Order 对话） |
+| `panel` | `misaka panel`（完整 TUI，手机上不推荐但可用） |
+| `attach` | `misaka chat --attach --session <arg>`；`arg` 必须是会话目录下的真实路径 |
+
+**界面要求（M7）**
+
+1. 「⋯」菜单新增「终端」`#/terminal`；进页面先选 profile（默认 `shell`）+ cwd（默认工作区根），点「连接」才开会话。
+2. xterm 用 `@xterm/xterm` + `@xterm/addon-fit`（**只允许这两个新依赖**）；主题跟随应用深浅色；字号 13；页面本身不横向滚动（终端内部可横滚/换行由 PTY 决定）。
+3. 手机上点终端区即聚焦并唤起软键盘；`visualViewport` 变化时重新 `fit` 并发送 `resize`；断开/切换应用回来要能重连（重新取票）。
+4. 显示 `exit` 帧的退出码；错误帧按 `code` 给出人话（`too_many_terminals` / `pty_unavailable` / `ticket_expired` / `terminal_disabled`），并提供「重连」。
+5. 顶部一条说明：`输入框里的文字会发给她；这里的按键会进终端。两者不是一回事。`
+6. mock 覆盖 ticket + ws 的全部错误码（ws 用本地假帧模拟，不真的连 PTY）。
+
+**服务端约定**
+
+- 票据：`POST /api/terminal/ticket` 用 Bearer 授权，签发一次性 ticket（内存表，30s，绑定客户端 IP + UA 哈希）；`ws` 只认 ticket，不接受 long-lived token。
+- PTY：Linux/macOS 用 `os.openpty()` + `setsid`；**Windows 没有 POSIX PTY**，退化为管道模式（`shell` 只能跑非交互命令，TUI 不可用），并在 ticket 响应里带 `mode: "pipe"` 供界面提示。
+- 并发：`MISAKA_WEB_TERMINAL_MAX`（默认 1）；空闲 30 分钟或浏览器断开即回收；子进程随服务退出。
+- 审计：`terminal_open`（profile/cwd/pid）、`terminal_close`（时长/退出码）；**不记录按键**。
 ## 4. 上游接缝（只读参考，供实现者对齐语义）
 
 - 控制协议：`misaka/core/session_control.py:1-5,29-46,186-214`（一命令一 ack；`snapshot` 支持 cursor 增量）

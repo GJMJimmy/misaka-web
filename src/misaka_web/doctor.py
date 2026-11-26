@@ -18,6 +18,18 @@ def _check(name: str, ok: bool | None, detail: str, *, fatal: bool = True) -> di
 def run_checks() -> list[dict[str, Any]]:
     settings = config.settings()
     checks: list[dict[str, Any]] = []
+    # Terminal: the phone's way to run commands without SSH.
+    try:
+        from .bridge import pty as terminal_bridge
+
+        if terminal_bridge.pty_available():
+            checks.append(("terminal", "ok", "PTY available: shell, misaka chat, panel and attach all work"))
+        else:
+            checks.append(("terminal", "warn",
+                           "no POSIX PTY on this host: only the shell profile runs (no TUI). "
+                           "Run the web UI on Linux or macOS for the full terminal"))
+    except Exception as error:  # noqa: BLE001
+        checks.append(("terminal", "warn", f"terminal bridge unavailable: {error}"))
 
     token = config.read_token()
     checks.append(_check("token", bool(token), str(settings.token_file) if token else f"missing: {settings.token_file}"))
