@@ -137,6 +137,23 @@ type NodeDetail = NodeSummary & {
 ### 3.3 审计
 
 `stop` / `limits` / `tell` 每次成功都追加一行 JSON 到 token 目录旁的 `audit.jsonl`（`{at, action, run_id, …}`，0600）。
+
+### 3.4 进程托管（M2）
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| POST | `/api/runs` | `{question, workspace?, limits?, diagnostics?}` | `{pid, run_id \| null, workspace, log, argv}`；`run_id` 是子进程写进看板后被发现的值，最长等 25s |
+| POST | `/api/runs/{id}/resume` | — | `{run_id, pid, kind:"resume", log, alive:true}` |
+| GET | `/api/runs/{id}/log?lines=200` | — | `{path, text}`；非本桥接启动的 run → 404 |
+| POST | `/api/runs/{id}/stop` | `{force?: bool}` | 看板请求停止；`force:true` 且由本桥接托管时再终止进程，返回 `{…, terminated:{ok,pid}}` |
+
+`RunDetail.process`：`{run_id, pid, argv, workspace, kind, log, started_at, alive} | null`（`null` 表示这个 run 不是本桥接启动的）。
+
+**工作区白名单**：`MISAKA_WEB_WORKSPACE_ROOT`（默认 `~/Documents`，不存在则用 `~`）。绝对路径必须落在其中，且必须已存在，否则 422。
+**子进程命令**：默认 `python -m misaka research <问题> [--depth …]`，可用 `MISAKA_WEB_MISAKA_BIN` 指定二进制，或 `MISAKA_WEB_RESEARCH_CMD` 整体覆盖（测试用）。argv 传参，不经 shell。
+**日志**：`<token 目录>/runs/*.log`；进程状态记在 `<token 目录>/runs.json`（0600）。
+**审计**：`run_start` / `resume` / `stop` / `terminate` 均记入 `audit.jsonl`。
+
 ## 4. 上游接缝（只读参考，供实现者对齐语义）
 
 - 控制协议：`misaka/core/session_control.py:1-5,29-46,186-214`（一命令一 ack；`snapshot` 支持 cursor 增量）

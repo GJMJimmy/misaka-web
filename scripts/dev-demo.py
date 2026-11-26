@@ -141,6 +141,16 @@ def main() -> int:
     threading.Thread(target=_respond, args=(owner,), daemon=True).start()
     _seed_board(home, home / "demo-project", owner.session_id)
 
+    # Keep demo activity inside the demo home, and simulate new runs instead of spending tokens.
+    os.environ.setdefault("MISAKA_WEB_WORKSPACE_ROOT", str(home / "demo-project"))
+    (home / "demo-project").mkdir(parents=True, exist_ok=True)
+    if not os.environ.get("MISAKA_WEB_RESEARCH_CMD"):
+        fake = ROOT / "tests" / "fake_research.py"
+        if fake.is_file():
+            os.environ["MISAKA_WEB_RESEARCH_CMD"] = '"{0}" "{1}"'.format(sys.executable, fake)
+            os.environ.setdefault("MISAKA_WEB_FAKE_SLEEP", "15")
+            print("demo: new runs are simulated by tests/fake_research.py (no model calls)", flush=True)
+
     import uvicorn
 
     host = os.environ.get("MISAKA_WEB_HOST", "127.0.0.1")

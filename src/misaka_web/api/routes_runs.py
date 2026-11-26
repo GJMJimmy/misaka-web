@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from .. import audit, auth
 from ..bridge import runs as board
+from ..bridge import supervisor
 
 router = APIRouter(prefix="/api/runs", tags=["runs"], dependencies=[Depends(auth.require_auth)])
 
@@ -20,6 +21,17 @@ class TellBody(BaseModel):
 
 class LimitsBody(BaseModel):
     changes: dict[str, Any] = Field(default_factory=dict)
+
+
+class CreateRunBody(BaseModel):
+    question: str = ""
+    workspace: str | None = None
+    limits: dict[str, Any] = Field(default_factory=dict)
+    diagnostics: bool = False
+
+
+class StopBody(BaseModel):
+    force: bool = False
 
 
 def _fail(status: int, message: str, *, code: str) -> None:
@@ -85,15 +97,61 @@ async def tell(run_id: str, body: TellBody) -> dict[str, Any]:
         raise
 
 
-@router.post("/{run_id}/stop")
-async def stop(run_id: str) -> dict[str, Any]:
+@router.post("")
+async def create_run(body: CreateRunBody) -> dict[str, Any]:
+    """Start `misaka research` as a child of this service and wait for its run id."""
     try:
-        result = board.request_stop(run_id)
-        audit.record("stop", run_id=run_id)
-        return result
+        result = supervisor.start(
+            workspace=body.workspace or "",
+            question=body.question,
+            limits=body.limits,
+            diagnostics=body.diagnostics,
+        )
+    except supervisor.SupervisorError as error:
+        _fail(422, str(error), code="invalid_request")
+    audit.record("run_start", run_id=result.get("run_id"), pid=result.get("pid"), workspace=result.get("workspace"),
+                 question=(body.question or "")[:200])
+    return result
+
+
+@router.post("/{run_id}/resume")
+async def resume_run(run_id: str) -> dict[str, Any]:
+    try:
+        result = supervisor.resume(run_id)
+    except supervisor.SupervisorError as error:
+        _fail(422, str(error), code="invalid_request")
     except Exception as error:  # noqa: BLE001
         _board_error(error)
         raise
+    audit.record("resume", run_id=run_id, pid=result.get("pid"))
+    return result
+
+
+@router.get("/{run_id}/log")
+async def run_log(run_id: str, lines: int = 200) -> dict[str, Any]:
+    try:
+        return supervisor.log_tail(run_id, lines=lines)
+    except supervisor.SupervisorError as error:
+        _fail(404, str(error), code="not_found")
+        raise
+
+
+@router.post("/{run_id}/stop")
+async def stop(run_id: str, body: StopBody | None = None) -> dict[str, Any]:
+    try:
+        result = board.request_stop(run_id)
+    except Exception as error:  # noqa: BLE001
+        _board_error(error)
+        raise
+    audit.record("stop", run_id=run_id)
+    if body is not None and body.force and supervisor.managed(run_id):
+        try:
+            killed = supervisor.terminate(run_id)
+        except supervisor.SupervisorError as error:
+            _fail(422, str(error), code="invalid_request")
+        audit.record("terminate", run_id=run_id, pid=killed.get("pid"))
+        result = {**result, "terminated": killed}
+    return result
 
 
 @router.post("/{run_id}/limits")

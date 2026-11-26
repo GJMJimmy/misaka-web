@@ -152,6 +152,7 @@ def run_detail(run_id: str) -> dict[str, Any]:
             "awaiting_approval": sum(1 for node in nodes if node.get("status") == "awaiting_approval"),
             "nodes": nodes,
             "products": products,
+            "process": _process(run_id),
             "dissolving": [node["id"] for node in views.dissolving_nodes(con, run)],
         }
 
@@ -198,6 +199,13 @@ def node_detail(run_id: str, node_id: str) -> dict[str, Any]:
             "syntheses": syntheses,
             "files": node_files(run, node),
         }
+
+
+def _process(run_id: str) -> dict[str, Any] | None:
+    """What this bridge knows about the run process it started, if it started one."""
+    from . import supervisor
+
+    return supervisor.info(run_id)
 
 
 def node_files(run: dict[str, Any], node: dict[str, Any]) -> list[dict[str, Any]]:

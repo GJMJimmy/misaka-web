@@ -391,15 +391,40 @@ input 返回 502 `no_control` / `unconfirmed`；日志里出现 ENOENT / EACCES 
 
 ---
 
-## 7. 本版未覆盖 / 已知限制（M0）
+## 7. 本版未覆盖 / 已知限制（M1 / M2）
 
 - 无多用户、无角色、无按会话授权：持有 token 的人拥有一切权限。
 - 无自动重连：SSE 断开后需要用户手动点重连（契约第 3 节的规定）。
-- 本仓**未在真实 systemd 主机上验证**过：单元文件的语法依据 systemd 官方语义编写，
-  但没有跑过 `systemd-analyze verify`（交付环境为 Windows）。上线前请执行：
+- 研究面**不自动轮询**：状态变化要手动「刷新 / 回读状态」，避免手机后台高频读看板。
+- 本仓**未在真实 systemd 主机上验证**过：单元按 systemd 官方语义编写，但没有跑过 `systemd-analyze verify`（交付环境为 Windows）。上线前请执行：
   `sudo systemd-analyze verify /etc/systemd/system/misaka-web.service`。
-- 同理，`Caddyfile.example` 未在目标 Caddy 版本上跑过 `caddy validate`，请按 2.5 自验。
-- `ReadWritePaths` 只放行了 `~/.misaka` 与 `~/.config/misaka-web`。若你的部署还需要写别的目录
-  （例如自定义 `MISAKA_WEB_STATIC` 之外的上传目录），日志会明确报 EPERM/EROFS，再按需追加，不要整体放开家目录。
+- 同理 `Caddyfile.example` 未在目标 Caddy 版本上跑过 `caddy validate`，请按 2.5 自验。
+- 服务只能写两处：`ReadWritePaths` 只放行 token 目录（`~/.config/misaka-web`），`ReadOnlyPaths` 放行 `~/.misaka`（桥接只读 catalog、只 connect 控制 socket）。若还要写别处，日志会明确报 EPERM/EROFS，按需追加单条路径，不要整体放开家目录。
+- 研究面（runs / 节点 / 审批 / 起 run）需要 **MISAKA 装在同一个 venv 里**；只装 misaka-web 时这些端点返回 503 `board_unavailable`，会话面照常可用（见 §8）。
+- 外部（SSH）起的 run 只能看和审批，不能在 WebUI 里终止它的进程（进程不归本服务托管）。
 - 日志与备份策略只给到原则：轮转交给 journald，备份保留周期由你的策略决定（token 备份必须加密）。
-- 服务器上永远不需要 node：如果有人在服务器上装 node 来"修前端"，说明流程走错（应在发布机构建并提交 `static/`）。
+- 服务器上永远不需要 node：如果有人在服务器上装 node 来「修前端」，说明流程走错（应在发布机构建并提交 `static/`）。
+## 8. 启动/恢复研究（M2）
+
+WebUI 可以代你起 `misaka research`，但**服务进程必须能调用上游 CLI**：
+
+- 默认用 `python -m misaka research …`，即在同一个 venv 里（`install.sh --with-misaka` 已经覆盖）；
+- 上游装在别处时，用 `Environment=MISAKA_WEB_MISAKA_BIN=/path/to/misaka` 指定；
+- 生成模型凭据走研究账号的 `~/.misaka`，因此服务必须以该账号运行（同 §2.4）；
+- 起 run 的目录受白名单限制：`MISAKA_WEB_WORKSPACE_ROOT`（默认 `~/Documents`），越界 422。
+
+子进程的 stdout/stderr 落在 `<token 目录>/runs/*.log`，进程档案在 `<token 目录>/runs.json`（0600）。
+所以：
+
+```sh
+# 看某次运行的日志（也可在 UI 的「查看日志」里看）
+journalctl -u misaka-web -n 50        # 服务本身
+ls ~/.config/misaka-web/runs/         # 每次运行的子进程日志
+tail -n 100 ~/.config/misaka-web/runs/new-*.log
+```
+
+注意：
+
+- 服务重启后 `runs.json` 仍在，UI 会显示进程「已退出」；用「恢复运行」重新拉起（走 `--resume`），不要手工 `kill` 后重起新 run。
+- 停止分两步：先请求停止（看板标记，让工作流在节点边界收尾），必要时再强制终止进程——强制终止会丢当前节点未落盘的进度。
+- 外部（SSH）起的 run 不进 `runs.json`，UI 会标成「非 WebUI 启动」，只能看和审批，不能在这里终止进程。
