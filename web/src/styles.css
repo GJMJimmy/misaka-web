@@ -1894,6 +1894,277 @@ a.btn {
   -webkit-box-orient: vertical;
 }
 
+/* ==================================================================
+   M4 打磨与运营：离线壳 / 打印 / 审计 / 待办提醒
+   ================================================================== */
+
+/* ---------- 研究 tab 的待办圆点 ---------- */
+.tab {
+  position: relative;
+}
+
+.tab__dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ---------- 审计 ---------- */
+.audit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.audit-row__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.audit-row__time {
+  color: var(--fg-subtle);
+  font-size: 12px;
+}
+
+.audit-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.audit-row__field {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.audit-row__key {
+  color: var(--fg-subtle);
+  font-family: var(--font-mono);
+}
+
+.audit-row__field code {
+  overflow-wrap: anywhere;
+}
+
+.audit-row__absolute {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: 11px;
+}
+
+/* ---------- 菜单 ---------- */
+.sheet--menu {
+  max-height: calc(var(--app-height) - 24px);
+}
+
+.menu-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 12px;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.menu-row--static {
+  cursor: default;
+}
+
+.menu-row__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.menu-row__meta {
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.menu-row__action {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+/* 打印头：屏幕上永不显示 */
+.print-header {
+  display: none;
+}
+
+/* ---------- 打印 / 导出 ---------- */
+@media print {
+  .topbar,
+  .tabs,
+  .composer,
+  .session__bar,
+  .action-row,
+  .banner,
+  .list__toolbar,
+  .sheet__head,
+  .sheet__foot,
+  .sheet__tools,
+  .btn,
+  .chip-row,
+  .pdf-toolbar,
+  .msg-error,
+  .empty,
+  .working,
+  .caret {
+    display: none !important;
+  }
+
+  html,
+  body,
+  .app,
+  .screen,
+  .list,
+  .transcript,
+  .sheet,
+  .sheet__body {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .sheet-layer {
+    position: static !important;
+    display: block !important;
+  }
+
+  .sheet-layer__scrim {
+    display: none !important;
+  }
+
+  .sheet {
+    max-width: none !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .print-header {
+    display: block !important;
+    margin: 0 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #000;
+  }
+
+  .print-header h1 {
+    margin: 0 0 4px;
+    font-size: 16pt;
+    line-height: 1.25;
+  }
+
+  .print-header p {
+    margin: 0;
+    font-size: 9pt;
+  }
+
+  .msg,
+  .panel,
+  .card,
+  .source-row,
+  .audit-row,
+  .task-row,
+  .file-row,
+  .artifact-row {
+    background: #fff !important;
+    border: 1px solid #999 !important;
+    box-shadow: none !important;
+  }
+
+  /* 引用保留可见但不可点 */
+  .md__cite {
+    padding: 0 !important;
+    border: none !important;
+    background: none !important;
+    color: #000 !important;
+    font-family: inherit !important;
+    font-size: inherit !important;
+    cursor: auto;
+  }
+
+  /* 链接按纯文本：不追加 URL */
+  a[href]::after {
+    content: "" !important;
+  }
+
+  .md__link-url {
+    display: none !important;
+  }
+
+  .md__codeblock,
+  .md__pre,
+  .log-view,
+  .argv-view {
+    max-height: none !important;
+    overflow: visible !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    background: #fff !important;
+    border: 1px solid #999 !important;
+  }
+
+  /* 表格加边框、允许换行 */
+  .md__table-wrap {
+    overflow: visible !important;
+    border: 1px solid #000 !important;
+  }
+
+  .md__table {
+    width: 100% !important;
+  }
+
+  .md__table th,
+  .md__table td {
+    border: 1px solid #666 !important;
+    white-space: normal !important;
+  }
+
+  .pdf-embed {
+    display: none !important;
+  }
+
+  /* 只打印 sheet（文件 / 来源面板）时，把同一屏里的其它内容让位 */
+  .print-sheet .list > *:not(.sheet-layer) {
+    display: none !important;
+  }
+}
+
 @media (hover: hover) {
   .md__cite:hover {
     filter: brightness(1.06);

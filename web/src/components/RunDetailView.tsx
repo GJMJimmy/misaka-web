@@ -11,6 +11,7 @@ import {
 import { MOCK } from "../env";
 import { classifyError, type LoadFailure } from "../errors";
 import { formatRelativeMs } from "../format";
+import { printCurrentView } from "../print";
 import {
   EDITABLE_LIMITS,
   type EditableLimitKey,
@@ -291,6 +292,13 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost, flash, on
 
   return (
     <div className="list">
+      <div className="print-header">
+        <h1>{run.question}</h1>
+        <p>
+          运行 {run.id} · {run.workspace} · status {run.status}
+        </p>
+      </div>
+
       {failure ? (
         <section className="notice notice--error">
           <p className="notice__body" role="alert">
@@ -334,6 +342,9 @@ export default function RunDetailView({ runId, onOpenNode, onAuthLost, flash, on
           </button>
           <button type="button" className="btn" onClick={() => setBrowser({})}>
             来源
+          </button>
+          <button type="button" className="btn" onClick={() => printCurrentView("page")}>
+            导出/打印
           </button>
           <button
             type="button"

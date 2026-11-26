@@ -11,7 +11,7 @@
 ```
 web/
   index.html            单页入口（viewport-fit=cover、manifest、theme-color）
-  public/               manifest.webmanifest、icon.svg（PWA 安装所需）
+  public/               manifest.webmanifest、icon.svg、sw.js（手写 Service Worker，原样拷到 dist 根）
   src/
     main.tsx            入口：先落主题；VITE_MOCK=1 时装载 mock 后端
     App.tsx             认证状态机 + 顶层导航（会话 / 研究）+ 极简 hash 路由
@@ -29,6 +29,10 @@ web/
                         Tabs / ResearchListView / RunDetailView / NodeDetailView / StatusChip / ConfirmLayer / FileViewer
                         NewRunSheet（新建研究）/ LogSheet（进程日志）
                         SourcePanel / SourceBrowser / FileSheet（来源面板与原文）
+                        AuditView（审计）/ MenuSheet（顶部菜单）
+    sw.ts               Service Worker 注册 + 更新提示（仅生产）
+    useReminders.ts     待办提醒：标题前缀 / tab 圆点 / 页面内通知
+    print.ts            导出/打印（body class + window.print）
     styles.css          设计视口 390x844、断点 768/1024、深/浅色、safe-area
 ```
 
@@ -299,7 +303,47 @@ SSE 说明：`EventSource` 不能自定义请求头，所以 `/api/sessions/{id}
 | 路径引用 / 404 | `downloads/missing.pdf` → 「这个路径不在产物里」 |
 | 没有清单（404 提示） | `r-beta-2411` 或 `n-md` 的来源按钮 |
 
-## 已知限制（M0/M1/M2/M3 未做）
+## M4 打磨与运营
+
+### Service Worker（离线壳，手写，无 workbox）
+
+`public/sw.js` → `/sw.js`（scope `/`），只在**生产构建**里注册（`src/sw.ts` 顶部 `ENABLED = import.meta.env.PROD`，dev 不注册，避免缓存干扰热更新）。
+
+| 请求 | 策略 |
+|---|---|
+| `/api/**`、`**/file`（含 Range 的 PDF/文件流） | **网络直通，一律不缓存**（`isNetworkOnly()` 命中就直接 `return`，不 `respondWith`） |
+| 导航请求（`mode === "navigate"`） | network-first，失败回退缓存的 `index.html`（离线壳） |
+| 带 hash 的静态资源 | cache-first，成功后写缓存 |
+
+- `activate` 时删掉名字不匹配的旧 cache 并 `clients.claim()`；想作废缓存改 `sw.js` 里的 `VERSION`。
+- 更新提示：`updatefound` → `installed` 且已有 controller 时，顶部出现「有新版本：点此刷新」banner，点击走 `SKIP_WAITING` 消息 + reload。
+- 离线：`navigator.onLine === false` 时顶部 warn banner「离线：显示的是缓存壳」，恢复在线自动消失。
+- 注意：`sw.js` 只在 `vite build` 的产物里（`dist/sw.js`），`vite dev` 不会注册。
+
+### 导出 / 打印
+
+- `@media print` 规则：隐藏工具栏 / 导航 / 按钮 / chip 行 / 错误条，正文铺满；`.md__cite` 保留可见但去掉边框与手型（打印里不可点）；代码块/日志 `white-space: pre-wrap` 换行；表格加边框并允许换行；链接只留文本（`.md__link-url` 隐藏）。
+- 打印头：`.print-header` 屏幕上 `display:none`，打印时显示标题 + 运行 id（`RunDetailView` 是问题 + `run.id` + workspace + status；`FileSheet` 是文件名 + `runId` + path）。
+- 两个「导出/打印」按钮：运行详情 action row、文件 sheet 头部。sheet 里点打印会给 `body` 加 `print-sheet`，打印样式只保留 sheet（同屏其它内容 `display:none`），`afterprint` 或 1.5s 兜底后摘掉。
+
+### 审计页 `#/audit`
+
+- 入口在顶部「⋯」菜单（点两下可达：⋯ → 审计日志）。
+- `GET /api/audit?limit=200&action=`：列表显示时间（相对 + `title` 绝对值）、`action`、`run_id`、`node_id`/`pid`，其余字段收进 `<details>` 折叠成 JSON。
+- action 过滤是一排 chip（已知的 run_start/resume/stop/terminate/limits/tell + 响应里出现过的值），点一下重新拉；空态说明「还没有写操作」并指出这些动作会写 `audit.jsonl`。
+- 响应形状没有写进契约，客户端做防御式解析：数组、`{entries}`、`{events}`、`{audit}`、`{items}`、`{lines}` 都认，行内 `at/ts/time/timestamp`、`run_id/runId`、`node_id/nodeId` 也都认。
+- mock：种子 5 条（stop/limits/tell/run_start/terminate/resume），并且 mock 处理 stop/limits/tell/run_start/resume 时会**真的往审计里追加**；审计页右上角 `mock: 正常/空态` 可演示空态。
+
+### 待办提醒（不引 Web Push）
+
+- 页面**可见**时每 30s `GET /api/runs`（`document.visibilityState === "visible"` 才拉），切到后台停，回到前台立刻拉一次。
+- 计数 = `Σ awaiting_approval` + 状态为失败（`failed/error/canceled`）的运行数：
+  - 浏览器标签标题前缀：`(2) MISAKA WebUI`，归零自动还原；
+  - 研究 tab 上的小圆点（>9 显示 `9+`）；
+  - 若 `Notification.permission === "granted"` 且计数**增加**，发一条本地通知（`tag: misaka-runs`，点击聚焦窗口）——这是页面打开时的提醒，不是服务端推送。
+- **不主动弹权限请求**：只有菜单里的「开启提醒」按钮会调 `Notification.requestPermission()`。
+
+## 已知限制（M0–M4 未做）
 
 - **没有 Service Worker**：只提供 manifest + standalone 显示，暂不做离线缓存
   （避免 SW 缓存与静态托管/版本升级互相打架，留到下一里程碑）。
@@ -321,3 +365,10 @@ SSE 说明：`EventSource` 不能自定义请求头，所以 `/api/sessions/{id}
 - 会话视图（`MessageList`）里的文本**没有**引用跳转：那里没有 run 上下文，硬猜 run 不划算；
   引用可点只在「有 run 的文件 sheet」里生效。
 - 来源面板不做搜索/过滤（`details` 原样列出）；来源很多时只靠滚动。
+- **SW 的离线行为未在真浏览器验证**：本会话没有可用浏览器，只做了静态检查（`dist/sw.js` 存在、
+  `isNetworkOnly()` 覆盖 `/api/` 与 `/file`、注册只在 `PROD` 分支）。离线回退、更新 banner、
+  `skipWaiting` 后的 reload 都需要真机确认。
+- **打印预览未实测**：`@media print` 与 `print-sheet` 的取舍逻辑是 CSS 级证据，没有导出的 PDF 截图。
+- **通知权限流程未实测**：`Notification` 需要安全上下文（https 或 localhost），在纯 http 的内网地址上会失败；
+  界面只做「未开启/已拒绝/不支持」三态文案，不探测原因。
+- 提醒只统计 `GET /api/runs` 的 `awaiting_approval` 与失败状态；不覆盖「节点级」待审批（`RunDetail.nodes` 才有的信息）。

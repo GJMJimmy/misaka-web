@@ -413,7 +413,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   // M1 研究面（/api/runs*）与 mock 演示开关（/api/__mock/*）交给 mock-research.ts
-  if (path.startsWith("/api/runs") || path.startsWith("/api/__mock/")) {
+  if (path.startsWith("/api/runs") || path === "/api/audit" || path.startsWith("/api/__mock/")) {
     const handled = await handleResearch(path, method, bodyText, url.searchParams);
     if (handled) return handled;
   }

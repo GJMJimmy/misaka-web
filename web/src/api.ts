@@ -11,6 +11,7 @@ import type {
   Session,
   Snapshot,
   SourceList,
+  AuditEntry,
   StopRunResponse,
 } from "./types";
 
@@ -289,14 +290,96 @@ export async function getRunLog(runId: string, lines = 300): Promise<RunLog> {
   return requestJson<RunLog>(`/api/runs/${encodeURIComponent(runId)}/log?lines=${lines}`);
 }
 
+/* ------------------------------------------------------- M4 审计 */
+
+const AUDIT_KNOWN = new Set([
+  "at",
+  "ts",
+  "time",
+  "timestamp",
+  "action",
+  "event",
+  "kind",
+  "run_id",
+  "runId",
+  "node_id",
+  "nodeId",
+  "pid",
+]);
+
+const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+function firstString(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value !== "") return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return null;
+}
+
+function firstNumber(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && /^\d+$/.test(value)) return Number.parseInt(value, 10);
+  }
+  return null;
+}
+
+/** audit.jsonl 的行形状没有写在契约里，这里容忍 at/ts/time、run_id/runId 等变体。 */
+function normalizeAuditEntry(raw: unknown): AuditEntry | null {
+  if (!isPlainRecord(raw)) return null;
+  const action = firstString(raw, ["action", "event", "kind"]);
+  if (!action) return null;
+  const extra: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!AUDIT_KNOWN.has(key)) extra[key] = value;
+  }
+  return {
+    at: firstString(raw, ["at", "ts", "time", "timestamp"]),
+    action,
+    run_id: firstString(raw, ["run_id", "runId"]),
+    node_id: firstString(raw, ["node_id", "nodeId"]),
+    pid: firstNumber(raw, ["pid"]),
+    extra,
+  };
+}
+
+/** GET /api/audit?limit=200&action= —— 响应形状防御式解析（数组 / entries / events / audit / items 都认）。 */
+export async function getAudit(limit = 200, action?: string | null): Promise<AuditEntry[]> {
+  const query = `limit=${encodeURIComponent(String(limit))}${action ? `&action=${encodeURIComponent(action)}` : ""}`;
+  const body = await requestJson<unknown>(`/api/audit?${query}`);
+
+  const candidates: unknown[] = [
+    body,
+    isPlainRecord(body) ? body.entries : null,
+    isPlainRecord(body) ? body.events : null,
+    isPlainRecord(body) ? body.audit : null,
+    isPlainRecord(body) ? body.items : null,
+    isPlainRecord(body) ? body.lines : null,
+  ];
+  const list = candidates.find((item) => Array.isArray(item)) as unknown[] | undefined;
+  if (!list) return [];
+
+  const entries: AuditEntry[] = [];
+  for (const item of list) {
+    const entry = normalizeAuditEntry(item);
+    if (entry) entries.push(entry);
+  }
+  return entries;
+}
+
 /**
  * 仅 VITE_MOCK=1 使用：切换研究面的演示状态（列表空态/503、进程 alive/dead/null、
- * 新建时 run_id 是否为 null）。真实后端没有这个端点，MOCK=false 的构建里永远不会调用。
+ * 新建时 run_id 是否为 null、审计空态）。真实后端没有这个端点，MOCK=false 的构建里永远不会调用。
  */
 export async function setMockResearchMode(patch: {
   mode?: "normal" | "empty" | "board_unavailable";
   process?: "default" | "alive" | "dead" | "null";
   createRunIdNull?: boolean;
+  audit?: "normal" | "empty";
 }): Promise<void> {
   await requestJson<{ ok: boolean }>("/api/__mock/research", {
     method: "POST",

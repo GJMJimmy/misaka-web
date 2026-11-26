@@ -1022,6 +1022,54 @@ function fileResponse(entry: MockFileEntry, name: string): Response {
   });
 }
 
+/* ------------------------------------------------------------------ 审计（§3.3 的 mock） */
+
+type MockAudit = Record<string, unknown>;
+
+let auditMode: "normal" | "empty" = "normal";
+
+const AUDIT: MockAudit[] = [
+  {
+    at: new Date(Date.now() - 4 * 60_000).toISOString(),
+    action: "tell",
+    run_id: "r-alpha-2411",
+    node_id: "n-api",
+    text: "同意，按这份计划开始。",
+  },
+  {
+    at: new Date(Date.now() - 26 * 60_000).toISOString(),
+    action: "limits",
+    run_id: "r-alpha-2411",
+    changes: { sister_parallel: 2 },
+    before: { sister_parallel: 1, parallel: 3 },
+  },
+  {
+    at: new Date(Date.now() - 95 * 60_000).toISOString(),
+    action: "run_start",
+    run_id: "r-alpha-2411",
+    pid: 43122,
+    workspace: "~/projects/misaka-web",
+    argv: ["python", "-m", "misaka", "research", "MISAKA WebUI 的 M1 研究驾驶舱"],
+  },
+  {
+    at: new Date(Date.now() - 120 * 60_000).toISOString(),
+    action: "terminate",
+    run_id: "r-beta-2411",
+    pid: 54417,
+    ok: true,
+  },
+  {
+    at: new Date(Date.now() - 190 * 60_000).toISOString(),
+    action: "resume",
+    run_id: "r-beta-2411",
+    pid: 54418,
+  },
+];
+
+function pushAudit(entry: MockAudit): void {
+  AUDIT.unshift({ at: new Date().toISOString(), ...entry });
+}
+
 /* ------------------------------------------------------------------ 路由 */
 
 export async function handleResearch(
@@ -1031,7 +1079,12 @@ export async function handleResearch(
   search: URLSearchParams,
 ): Promise<Response | null> {
   if (path === "/api/__mock/research" && method === "POST") {
-    const body = parseBody<{ mode?: unknown; process?: unknown; createRunIdNull?: unknown }>(bodyText);
+    const body = parseBody<{
+      mode?: unknown;
+      process?: unknown;
+      createRunIdNull?: unknown;
+      audit?: unknown;
+    }>(bodyText);
     if (typeof body?.mode === "string") {
       listMode = body.mode === "empty" || body.mode === "board_unavailable" ? body.mode : "normal";
     }
@@ -1040,7 +1093,18 @@ export async function handleResearch(
         body.process === "alive" || body.process === "dead" || body.process === "null" ? body.process : "default";
     }
     if (typeof body?.createRunIdNull === "boolean") createRunIdNull = body.createRunIdNull;
-    return jsonResponse({ ok: true, mode: listMode, process: processMode, createRunIdNull });
+    if (body?.audit === "empty" || body?.audit === "normal") auditMode = body.audit;
+    return jsonResponse({ ok: true, mode: listMode, process: processMode, createRunIdNull, audit: auditMode });
+  }
+
+  if (path === "/api/audit" && method === "GET") {
+    await delay(70);
+    if (auditMode === "empty") return jsonResponse({ entries: [] });
+    const limitRaw = Number.parseInt(search.get("limit") ?? "200", 10);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 1000)) : 200;
+    const action = search.get("action") ?? "";
+    const rows = action === "" ? AUDIT : AUDIT.filter((item) => item.action === action);
+    return jsonResponse({ entries: rows.slice(0, limit) });
   }
 
   if (!path.startsWith("/api/runs")) return null;
@@ -1118,10 +1182,12 @@ export async function handleResearch(
     if (createRunIdNull) {
       // 进程已起、看板还没写进来：先压着，下一次 GET /api/runs 再"追上来"。
       PENDING.push(created);
+      pushAudit({ action: "run_start", run_id: null, pid, workspace, argv, pending: true });
       return jsonResponse({ pid, run_id: null, workspace, log: logPath(id), argv });
     }
 
     data().push(created);
+    pushAudit({ action: "run_start", run_id: id, pid, workspace, argv });
     return jsonResponse({ pid, run_id: id, workspace, log: logPath(id), argv });
   }
 
@@ -1241,6 +1307,8 @@ export async function handleResearch(
         run.process = { ...managed, alive: false };
         terminated = { ok: true, pid: managed.pid };
       }
+      pushAudit({ action: "stop", run_id: run.id, force });
+      if (terminated) pushAudit({ action: "terminate", run_id: run.id, pid: terminated.pid, ok: terminated.ok });
       return jsonResponse({ ok: true, status: "stopping", terminated });
     }
 
@@ -1251,6 +1319,7 @@ export async function handleResearch(
       const before = { ...run.limits };
       run.limits = { ...run.limits, ...checked.value };
       run.updated_at = nowSec();
+      pushAudit({ action: "limits", run_id: run.id, changes: checked.value, before });
       return jsonResponse({ ok: true, before, after: { ...run.limits } });
     }
 
@@ -1275,6 +1344,7 @@ export async function handleResearch(
       task.status === "awaiting_approval" ? { ...task, status: "running", updated_at: nowSec() } : task,
     );
     run.updated_at = nowSec();
+    pushAudit({ action: "tell", run_id: run.id, node_id: target.id, text: text.slice(0, 120) });
     return jsonResponse({
       ok: true,
       node_id: target.id,
@@ -1294,6 +1364,7 @@ export async function handleResearch(
     run.process = { ...managed, pid, kind: "resume", alive: true, started_at: nowSec() };
     run.status = "active";
     run.updated_at = nowSec();
+    pushAudit({ action: "resume", run_id: run.id, pid, kind: "resume" });
     return jsonResponse({ run_id: run.id, pid, kind: "resume", log: run.process.log, alive: true });
   }
 

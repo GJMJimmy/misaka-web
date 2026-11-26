@@ -5,7 +5,8 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬�
 **M0（已交付）**：token 登录 → 会话列表 → 单会话实时流（SSE 增量）→ 发消息 / 暂停 / 恢复。
 **M1（已交付）**：研究列表 → 运行详情（节点按 depth 分组、limits、停止）→ 节点页（tasks / files / syntheses）→ 手写 Markdown 渲染 → **审批即对话**（把「同意」发给该节点的 Last Order）。
 **M2（已交付）**：在手机上**新建研究**（九参数中的六个 + 诊断）→ 托管 `misaka research` 子进程 → 进程区块（pid / kind / alive / 日志）→ 查看日志 → 恢复运行 → 双档停止（仅请求停止 / 请求停止并终止进程）。
-**M3（已交付）**：来源面板（`SOURCES.md` 解析出的 placed / original / sha256 / 定位符 / 页码）→ 正文引用可点（`doc:<id>#p<n>` 精确命中才跳，否则只高亮不猜）→ 文件 sheet 用浏览器内建 PDF 查看器 + `#page=` + 新标签兜底 → `/file` 支持 Range（206）。
+**M3（已交付）**：来源面板（`SOURCES.md` 解析出的 placed / original / sha256 / 定位符 / 页码）→ 正文引用可点（`doc:<id>#p<n>` 精确命中才跳，否则只高亮不猜）→ 文件 sheet 用浏览器内建 PDF 查看器 + `#page=` + 新标签兜底（iOS 走专门的分支）→ `/file` 支持 Range（206）。
+**M4（已交付）**：手写 Service Worker 离线壳（`/api/` 与文件流一律不缓存；构建时把 hash 资源清单盖进 `sw.js`）+ 更新/离线 banner → 打印/导出样式（只打印内容，不打印界面）→ 审计日志页（`#/audit`）→ 可见性轮询的待办计数（标签标题 + tab 圆点）→ `misaka-web doctor` 与升级 runbook。
 
 | 会话流式 | 研究列表 | 运行详情 | 节点 Markdown | 审批二次确认 |
 |---|---|---|---|---|
@@ -15,9 +16,9 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬�
 |---|---|---|
 | ![新建](docs/screens/mobile-new-run.png) | ![进程](docs/screens/mobile-run-process.png) | ![停止](docs/screens/mobile-stop-confirm.png) |
 
-| 来源面板 | 引用跳转（PDF 第 3 页） |
-|---|---|
-| ![来源](docs/screens/mobile-sources.png) | ![跳转](docs/screens/mobile-citation-jump.png) |
+| 来源面板 | 引用跳转（PDF 第 3 页） | 审计日志 | 打印/导出 | 离线壳 |
+|---|---|---|---|---|
+| ![来源](docs/screens/mobile-sources.png) | ![跳转](docs/screens/mobile-citation-jump.png) | ![审计](docs/screens/mobile-audit.png) | ![打印](docs/screens/mobile-print.png) | ![离线](docs/screens/mobile-offline.png) |
 |---|---|---|
 | ![新建](docs/screens/mobile-new-run.png) | ![进程](docs/screens/mobile-run-process.png) | ![停止](docs/screens/mobile-stop-confirm.png) |
 
@@ -42,6 +43,7 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'          # 研究面需要 misaka 在同一环境里
 python -m misaka_web token       # 生成 token（0600）
 python -m misaka_web serve       # 127.0.0.1:8787
+python -m misaka_web doctor      # 部署自检：token/产物/看板/控制 socket/工作区
 pytest -q                        # 62 项：认证/协议/看板/审批/审计/进程托管/来源与 Range
 ```
 
@@ -56,7 +58,7 @@ python scripts/dev-demo.py       # 假会话属主 + 种一份 demo 看板（2 r
 ```sh
 cd web && pnpm install
 pnpm dev                         # VITE_MOCK=1 时纯前端 mock，无需后端
-pnpm exec vite build && ../scripts/sync-web.sh   # 产物进包内 static/
+pnpm exec vite build && ../scripts/sync-web.sh   # 产物进包内 static/，并给 sw.js 盖上资源清单
 ```
 
 ## 部署

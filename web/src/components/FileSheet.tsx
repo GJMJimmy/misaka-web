@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, describeError, fetchRunFileText, runFileUrl } from "../api";
 import type { CitationSpan } from "../markdown-parse";
 import Markdown from "../markdown";
+import { printCurrentView } from "../print";
 
 type Props = {
   runId: string;
@@ -104,6 +105,9 @@ export default function FileSheet({ runId, path, nodeId, page, onClose, onOpenSo
         <header className="sheet__head">
           <span className="sheet__path">{path}</span>
           <div className="sheet__tools">
+            <button type="button" className="btn btn--chip" onClick={() => printCurrentView("sheet")}>
+              导出/打印
+            </button>
             {onOpenSources ? (
               <button type="button" className="btn btn--chip" onClick={onOpenSources}>
                 来源面板
@@ -114,6 +118,13 @@ export default function FileSheet({ runId, path, nodeId, page, onClose, onOpenSo
             </button>
           </div>
         </header>
+
+        <div className="print-header">
+          <h1>{name}</h1>
+          <p>
+            运行 {runId} · {path}
+          </p>
+        </div>
 
         {isPdf ? (
           <>

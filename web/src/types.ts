@@ -194,6 +194,19 @@ export type SourceList = {
   sources: Source[];
 };
 
+/* ------------------------------------------------------- M4 审计（运维） */
+
+/** GET /api/audit 的一行（audit.jsonl 语义：{at, action, run_id, …}，已做防御式归一化）。 */
+export type AuditEntry = {
+  at: string | number | null;
+  action: string;
+  run_id: string | null;
+  node_id: string | null;
+  pid: number | null;
+  /** 其余字段原样保留，界面上折叠展示。 */
+  extra: Record<string, unknown>;
+};
+
 /** limits 里允许前端改的四个整数（CONTRACT §3.1）。 */
 export const EDITABLE_LIMITS = ["sister_parallel", "parallel", "max_followups", "max_revisions"] as const;
 export type EditableLimitKey = (typeof EDITABLE_LIMITS)[number];
