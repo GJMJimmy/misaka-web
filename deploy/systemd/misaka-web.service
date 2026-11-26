@@ -55,24 +55,27 @@ UMask=0077
 
 # --- 最小硬化（需要 systemd >= 245；Debian 12 / Ubuntu 22.04+ 都满足） -----
 NoNewPrivileges=yes
-PrivateTmp=yes
+# 不要加 PrivateTmp=yes：上游把每个会话的控制 socket 建在系统 /tmp 下
+#   misaka/core/session_catalog.py:107   _CONTROL_PARENT = "/tmp"（非 Windows）
+#   misaka/core/session_control.py:76-79 /tmp/misaka-session-*/control.sock（0600）
+# 开了 PrivateTmp 后本服务只看见自己的私有 /tmp，既列不到也连不上属主进程的 socket，
+# 症状：所有会话 has_control:false、state 恒为 saved、input 一律 502
+# （见 docs/ops.md 故障排查表的「控制 socket 不可达」）。
 PrivateDevices=yes
 # 只读 /usr /boot /etc：本服务不需要写系统目录
 ProtectSystem=full
 # 家目录整体只读。上游会话目录只应经由控制 socket 访问，
 # 这一项就是防住"某个 bug 顺手写坏 ~/.misaka"这类事故。
 ProtectHome=read-only
-# 从 ProtectHome 的只读视图里放行的两处（systemd 不支持 ~ 展开，写绝对路径）：
-#   /home/misaka/.misaka        = ~/.misaka，上游会话根。本服务只读它
-#                                （不变量 1：永不直接读写 session 文件），
-#                                这里显式列出是为了让目录/控制 socket 在本单元的
-#                                挂载视图里可见可进入；同一账号下的上游进程也要能
-#                                就地更新它，故不在这里降级为只读。
+# 从 ProtectHome 的只读视图里显式放行的两处（systemd 不展开 ~，写绝对路径）：
 #   /home/misaka/.config/misaka-web = token 目录，必须可写：
 #                                token 轮换（misaka-web token）会重写其中的文件。
-# 若要更严格，可把 .misaka 换成 ReadOnlyPaths=（本服务确实从不写它）。
-ReadWritePaths=/home/misaka/.misaka /home/misaka/.config/misaka-web
-#ReadOnlyPaths=/home/misaka/.misaka
+#   /home/misaka/.misaka        = ~/.misaka，上游会话根，只读：
+#                                桥接只读 .catalog/ 的会话索引、只 connect 控制 socket，
+#                                从不写家目录（CONTRACT 不变量 1：永不直接读写 session 文件），
+#                                所以走 ReadOnlyPaths。控制 socket 本身在 /tmp，与这里无关。
+ReadWritePaths=/home/misaka/.config/misaka-web
+ReadOnlyPaths=/home/misaka/.misaka
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

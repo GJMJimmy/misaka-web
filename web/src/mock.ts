@@ -89,7 +89,7 @@ function seed(): void {
     entries: [
       {
         role: "user",
-        content: "先做会话视图：全量快照 + SSE 增量，别引入路由库和 Tailwind。",
+        content: "先做会话视图：全量快照 + SSE 增量，别引入路由库和组件库。",
         ts: at(58),
       },
       {
