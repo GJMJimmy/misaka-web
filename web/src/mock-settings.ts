@@ -115,24 +115,45 @@ let sisters: Sister[] = [
   },
 ];
 
+const nowSec = (): number => Math.floor(Date.now() / 1000);
+
+/** §3.7：default_project = 最近用过的那一个（last_run_at 最大的）。 */
 let projects: ProjectEntry[] = [
   {
     name: "misaka-agent",
     path: WORKSPACE_ROOT + "/misaka-agent",
+    initialized: true,
     has_project_md: true,
     is_git: true,
     has_sources: true,
     runs: 3,
+    last_run_at: nowSec() - 3600,
   },
   {
+    name: "my-research",
+    path: WORKSPACE_ROOT + "/my-research",
+    initialized: true,
+    has_project_md: true,
+    is_git: false,
+    has_sources: true,
+    runs: 1,
+    last_run_at: nowSec() - 86400,
+  },
+  {
+    // 只是根下的一个普通目录：没有 PROJECT.md / sources/，界面上要标「未初始化」。
     name: "notes",
     path: WORKSPACE_ROOT + "/notes",
+    initialized: false,
     has_project_md: false,
     is_git: true,
     has_sources: false,
     runs: 0,
+    last_run_at: null,
   },
 ];
+
+/** 演示开关：有默认项目 / 一个项目都没有（新建研究时该落到「新建项目目录」）。 */
+let projectsMode: "default" | "empty" = "default";
 
 /* ------------------------------------------------------------------ 小工具 */
 
@@ -163,7 +184,7 @@ export async function handleSettings(
 ): Promise<Response | null> {
   const isSettings = path.startsWith("/api/settings/");
   const isSisters = path === "/api/sisters" || path.startsWith("/api/sisters/");
-  const isProjects = path === "/api/projects";
+  const isProjects = path === "/api/projects" || path === "/api/__mock/projects";
   if (!isSettings && !isSisters && !isProjects) return null;
 
   await delay(60);
@@ -342,7 +363,18 @@ export async function handleSettings(
   /* ---------------------------------------------------- 项目 */
 
   if (path === "/api/projects" && method === "GET") {
-    return jsonResponse({ root: WORKSPACE_ROOT, projects });
+    if (projectsMode === "empty") return jsonResponse({ root: WORKSPACE_ROOT, default_project: null, projects: [] });
+    const lastUsed = projects.reduce<ProjectEntry | null>((best, item) => {
+      const at = item.last_run_at ?? 0;
+      return at > (best?.last_run_at ?? 0) ? item : best;
+    }, null);
+    return jsonResponse({ root: WORKSPACE_ROOT, default_project: lastUsed?.name ?? null, projects });
+  }
+
+  if (path === "/api/__mock/projects" && method === "POST") {
+    const body = parseBody<{ mode?: unknown }>(bodyText);
+    projectsMode = body?.mode === "empty" ? "empty" : "default";
+    return jsonResponse({ ok: true, mode: projectsMode });
   }
 
   if (path === "/api/projects" && method === "POST") {
@@ -359,10 +391,12 @@ export async function handleSettings(
     const created: ProjectEntry = {
       name,
       path: WORKSPACE_ROOT + "/" + name,
+      initialized: true,
       has_project_md: true,
       is_git: git,
       has_sources: true,
       runs: 0,
+      last_run_at: null,
     };
     projects = [...projects, created].sort((left, right) => left.name.localeCompare(right.name));
     return jsonResponse({

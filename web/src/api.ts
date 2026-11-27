@@ -581,13 +581,22 @@ export async function deleteSister(id: string): Promise<SisterWriteResponse> {
   });
 }
 
-/** GET /api/projects */
+/** GET /api/projects —— default_project 是新建研究的默认选中项（§3.7）。 */
 export async function listProjects(): Promise<ProjectList> {
-  const body = await requestJson<{ root?: string; projects?: unknown }>("/api/projects");
+  const body = await requestJson<{ root?: string; default_project?: unknown; projects?: unknown }>("/api/projects");
   return {
     root: typeof body?.root === "string" ? body.root : "",
+    default_project: typeof body?.default_project === "string" ? body.default_project : null,
     projects: Array.isArray(body?.projects) ? (body.projects as ProjectList["projects"]) : [],
   };
+}
+
+/**
+ * 仅 VITE_MOCK=1 使用：切换项目列表的演示状态（有默认项目 / 一个项目都没有）。
+ * 真实后端没有这个端点，MOCK=false 的构建里永远不会调用。
+ */
+export async function setMockProjectsMode(mode: "default" | "empty"): Promise<void> {
+  await requestJson<{ ok: boolean }>("/api/__mock/projects", { method: "POST", body: jsonBody({ mode }) });
 }
 
 /** POST /api/projects */

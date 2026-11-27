@@ -149,12 +149,12 @@ export type ProcessInfo = {
  * --depth / --parallel / --sister-parallel / --followups / --revisions / --max-nodes
  */
 export const CREATE_LIMIT_KEYS = [
-  { key: "depth", flag: "--depth", label: "研究深度", hint: "1..5" },
-  { key: "parallel", flag: "--parallel", label: "节点内并行度", hint: "1..8" },
-  { key: "sister_parallel", flag: "--sister-parallel", label: "兄弟节点并行度", hint: "1..8" },
-  { key: "followups", flag: "--followups", label: "追问轮数", hint: "0..20" },
-  { key: "revisions", flag: "--revisions", label: "修订次数", hint: "0..10" },
-  { key: "max_nodes", flag: "--max-nodes", label: "最多节点数", hint: "1..200" },
+  { key: "depth", flag: "--depth", label: "研究深度", hint: "1-5", fallback: "3" },
+  { key: "parallel", flag: "--parallel", label: "节点内并行度", hint: "1-8", fallback: "4" },
+  { key: "sister_parallel", flag: "--sister-parallel", label: "兄弟节点并行度", hint: "1-8", fallback: "4" },
+  { key: "followups", flag: "--followups", label: "追问轮数", hint: "0-20", fallback: "2" },
+  { key: "revisions", flag: "--revisions", label: "修订次数", hint: "0-10", fallback: "2" },
+  { key: "max_nodes", flag: "--max-nodes", label: "最多节点数", hint: "1-200", fallback: "30" },
 ] as const;
 
 export type CreateLimitKey = (typeof CREATE_LIMIT_KEYS)[number]["key"];
@@ -293,9 +293,13 @@ export type ProjectEntry = {
   is_git: boolean;
   has_sources: boolean;
   runs: number;
+  /** 服务端是否已在这个目录里建过 PROJECT.md / sources/；缺省当已初始化。 */
+  initialized?: boolean;
+  last_run_at?: number | null;
 };
 
-export type ProjectList = { root: string; projects: ProjectEntry[] };
+/** §3.7：default_project = 最近用过的项目，新建研究默认选中它（没有历史时是唯一那个）。 */
+export type ProjectList = { root: string; default_project?: string | null; projects: ProjectEntry[] };
 
 export type ProjectCreated = { ok: boolean; name: string; path: string; actions: string[] };
 

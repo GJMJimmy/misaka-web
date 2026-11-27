@@ -2214,3 +2214,40 @@ a.btn {
   overflow-wrap: anywhere;
 }
 
+/* ==================================================================
+   M8 新建研究：工作区三选一（§3.7 / §3.4）
+   ================================================================== */
+
+/* 非整数：当场标红，但输入值原样留着，用户能看清自己填了什么。 */
+.field__input--invalid {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
+.field__error {
+  color: var(--error-fg);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* 「将使用：<解析出的目录>」——把落点写在按钮旁边，别让用户猜。 */
+.workspace-preview {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.workspace-preview code {
+  color: var(--fg);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+

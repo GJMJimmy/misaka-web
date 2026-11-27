@@ -7,6 +7,7 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬�
 **M2（已交付）**：在手机上**新建研究**（九参数中的六个 + 诊断）→ 托管 `misaka research` 子进程 → 进程区块（pid / kind / alive / 日志）→ 查看日志 → 恢复运行 → 双档停止（仅请求停止 / 请求停止并终止进程）。
 **M3（已交付）**：来源面板（`SOURCES.md` 解析出的 placed / original / sha256 / 定位符 / 页码）→ 正文引用可点（`doc:<id>#p<n>` 精确命中才跳，否则只高亮不猜）→ 文件 sheet 用浏览器内建 PDF 查看器 + `#page=` + 新标签兜底（iOS 走专门的分支）→ `/file` 支持 Range（206）。
 **M4（已交付）**：手写 Service Worker 离线壳（`/api/` 与文件流一律不缓存；构建时把 hash 资源清单盖进 `sw.js`）+ 更新/离线 banner → 打印/导出样式（只打印内容，不打印界面）→ 审计日志页（`#/audit`）→ 可见性轮询的待办计数（标签标题 + tab 圆点）→ `misaka-web doctor` 与升级 runbook。
+**M8（已交付）**：新建研究默认在**已有项目**里跑——工作区是三选一（`项目` / `新建项目目录` / `手动输入路径`），默认选中最近用过的项目，并常驻显示「将使用：<路径>」；六个参数框改成整数输入、占位符是服务端默认值。
 **M7（已交付）**：失效条目的清理——项目文件夹没了时，研究/会话卡片上会出现「项目文件已删除」徽标；可以单条「从列表隐藏」或一键「隐藏所有失效项」，并有「显示已隐藏」开关可恢复。上游没有删除 API，所以这是**可逆的隐藏**（记在 `<token 目录>/hidden.json`，全程审计），不动 MISAKA 的看板与会话文件。
 **M6（已交付）**：聊天框里可以用斜杠命令——`/help`、`/research status|stop|resume|limits|tell`、`/sister ID`、`/model`、`/board`。这些由**桥接层解析**（结构化气泡、不进模型上下文），其它命令会给出等价路径；`//` 开头仍按上游约定原样发给模型。
 **M5（已交付）**：手机上的**配置台** `#/settings`——切 provider/模型（全局 + 每个角色）、设置或更换 API key（白名单写 `~/.misaka/.env`，只回显前 4 位）、增删改 Sisters、新建项目目录（自动 git init + PROJECT.md）；全部二次确认 + 审计。
@@ -22,6 +23,10 @@ MISAKA 的移动优先 WebUI：把服务器上的研究会话与研究运行搬�
 | 来源面板 | 引用跳转（PDF 第 3 页） | 审计日志 | 打印/导出 | 离线壳 |
 |---|---|---|---|---|
 | ![来源](docs/screens/mobile-sources.png) | ![跳转](docs/screens/mobile-citation-jump.png) | ![审计](docs/screens/mobile-audit.png) | ![打印](docs/screens/mobile-print.png) | ![离线](docs/screens/mobile-offline.png) |
+
+| 新建研究（默认已有项目） | 失效条目（可一键隐藏） |
+|---|---|
+| ![新建](docs/screens/mobile-new-run-sheet.png) | ![失效](docs/screens/mobile-stale-runs.png) |
 
 | 失效条目（可一键隐藏） | 显示已隐藏 |
 |---|---|

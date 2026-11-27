@@ -458,7 +458,12 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   }
 
   // M5 配置台（§3.7）交给 mock-settings.ts
-  if (path.startsWith("/api/settings/") || path.startsWith("/api/sisters") || path === "/api/projects") {
+  if (
+    path.startsWith("/api/settings/") ||
+    path.startsWith("/api/sisters") ||
+    path === "/api/projects" ||
+    path === "/api/__mock/projects"
+  ) {
     const handled = await handleSettings(path, method, bodyText, url.searchParams);
     if (handled) return handled;
   }

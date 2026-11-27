@@ -389,13 +389,19 @@ function validateCreateLimits(
   return { ok: true, value };
 }
 
-/** 工作区白名单（mock 版）：必须绝对路径（或以 ~ 开头），且落在 ~/Documents / ~/projects 之下。 */
+/**
+ * 工作区白名单（mock 版）：绝对路径（或以 ~ 开头）且落在 ~/Documents / ~/projects 之下；
+ * 也可以只给项目名（§3.7），mock 把它解析成 ~/Documents/<名字>，与真实服务端一致。
+ */
 function checkWorkspace(raw: string): { ok: true; value: string } | { ok: false; message: string } {
   if (raw === "") return { ok: true, value: "~/Documents" };
   const normalized = raw.replace(/\\/g, "/");
   const absolute = normalized.startsWith("/") || /^[A-Za-z]:\//.test(normalized);
   if (!normalized.startsWith("~") && !absolute) {
-    return { ok: false, message: `工作区必须是绝对路径（或以 ~ 开头）：「${raw}」。` };
+    if (/^[^/]+$/.test(normalized) && normalized !== "." && normalized !== "..") {
+      return { ok: true, value: `~/Documents/${normalized}` };
+    }
+    return { ok: false, message: `工作区只能是项目名、绝对路径或以 ~ 开头的路径：「${raw}」。` };
   }
   const allowed =
     normalized === "~" ||
