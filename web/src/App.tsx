@@ -138,6 +138,8 @@ export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  /** CONTRACT §3.9：会话列表默认不显示隐藏项；开关打开时按 include_hidden=1 回读。 */
+  const [sessionsShowHidden, setSessionsShowHidden] = useState(false);
   const [runFlash, setRunFlash] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const reminders = useReminders(auth === "authenticated");
@@ -159,7 +161,7 @@ export default function App() {
     setListLoading(true);
     setListError(null);
     try {
-      const list = await listSessions();
+      const list = await listSessions(sessionsShowHidden);
       setSessions(list);
       rememberSession(true);
       setAuth("authenticated");
@@ -174,7 +176,7 @@ export default function App() {
     } finally {
       setListLoading(false);
     }
-  }, []);
+  }, [sessionsShowHidden]);
 
   useEffect(() => {
     let alive = true;
@@ -351,7 +353,11 @@ export default function App() {
             sessions={sessions}
             loading={listLoading}
             error={listError}
+            showHidden={sessionsShowHidden}
+            onToggleHidden={() => setSessionsShowHidden((value) => !value)}
             onRefresh={() => void refreshSessions()}
+            onChanged={() => void refreshSessions()}
+            onAuthLost={handleAuthLost}
             onOpen={(id) => navigate({ kind: "session", id })}
             onLogout={() => void handleLogout()}
           />

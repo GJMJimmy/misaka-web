@@ -149,10 +149,22 @@ export async function me(): Promise<{ authenticated: boolean; version?: string }
   return requestJson<{ authenticated: boolean; version?: string }>("/api/me");
 }
 
-/** GET /api/sessions */
-export async function listSessions(): Promise<Session[]> {
-  const body = await requestJson<{ sessions?: Session[] }>("/api/sessions");
+/** GET /api/sessions?include_hidden=1 —— include_hidden 时连已隐藏的会话一起回读（§3.9）。 */
+export async function listSessions(includeHidden = false): Promise<Session[]> {
+  const body = await requestJson<{ sessions?: Session[] }>(
+    includeHidden ? "/api/sessions?include_hidden=1" : "/api/sessions",
+  );
   return Array.isArray(body?.sessions) ? body.sessions : [];
+}
+
+/** POST /api/sessions/{id}/hide —— 只从本服务的列表里隐藏，会话本身不动。 */
+export async function hideSession(id: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(id)}/hide`, { method: "POST" });
+}
+
+/** DELETE /api/sessions/{id}/hide —— 恢复显示。 */
+export async function unhideSession(id: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(id)}/hide`, { method: "DELETE" });
 }
 
 /** GET /api/sessions/{id} —— 进入会话时的那份全量快照。 */
@@ -216,10 +228,34 @@ export async function runCommand(text: string): Promise<CommandResult> {
 
 /* ------------------------------------------------------------------ M1 研究面 */
 
-/** GET /api/runs —— 503 board_unavailable 会抛 ApiError(code="board_unavailable")。 */
-export async function listRuns(): Promise<RunSummary[]> {
-  const body = await requestJson<{ runs?: RunSummary[] }>("/api/runs");
+/**
+ * GET /api/runs —— 503 board_unavailable 会抛 ApiError(code="board_unavailable")。
+ * includeHidden 会把已隐藏的 run 一起回读（§3.9）；默认不带，这就是「隐藏」的全部效果。
+ */
+export async function listRuns(includeHidden = false): Promise<RunSummary[]> {
+  const body = await requestJson<{ runs?: RunSummary[] }>(
+    includeHidden ? "/api/runs?include_hidden=1" : "/api/runs",
+  );
   return Array.isArray(body?.runs) ? body.runs : [];
+}
+
+/** POST /api/runs/{id}/hide —— 隐藏一条；GET /api/runs/{id} 仍然打得开。 */
+export async function hideRun(runId: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`/api/runs/${encodeURIComponent(runId)}/hide`, { method: "POST" });
+}
+
+/** DELETE /api/runs/{id}/hide —— 恢复显示。 */
+export async function unhideRun(runId: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`/api/runs/${encodeURIComponent(runId)}/hide`, { method: "DELETE" });
+}
+
+/** POST /api/runs/hide-stale —— 一次隐藏所有 workspace_missing 的 run，返回 {added, hidden}。 */
+export async function hideStaleRuns(): Promise<{ added: number; hidden: number }> {
+  const body = await requestJson<{ added?: unknown; hidden?: unknown }>("/api/runs/hide-stale", { method: "POST" });
+  return {
+    added: typeof body?.added === "number" ? body.added : 0,
+    hidden: typeof body?.hidden === "number" ? body.hidden : 0,
+  };
 }
 
 /** GET /api/runs/{run_id} */

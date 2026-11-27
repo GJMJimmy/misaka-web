@@ -32,6 +32,10 @@ type Store = {
   cursor: number;
   streamCursor: number;
   lastActivity: string;
+  /** CONTRACT §3.9：工作目录已不在磁盘上。 */
+  workspaceMissing: boolean;
+  /** CONTRACT §3.9：只从本服务的列表里隐藏（会话本身还在）。 */
+  hidden: boolean;
 };
 
 const STORE = new Map<string, Store>();
@@ -63,6 +67,8 @@ function makeStore(partial: Partial<Store> & { id: string; title: string }): Sto
     cursor: 0,
     streamCursor: 0,
     lastActivity: nowIso(),
+    workspaceMissing: false,
+    hidden: false,
     ...partial,
   };
   STORE.set(store.id, store);
@@ -120,6 +126,8 @@ function seed(): void {
     cwd: "~/projects/misaka-web",
     catalogState: "saved",
     hasControl: false,
+    // 演示 §3.9：这个会话的工作目录已经不在磁盘上，卡片照样打开，但要能看出来。
+    workspaceMissing: true,
     entries: [
       { role: "user", content: "把静态站挂到 Caddy 上，反代 /api 到 127.0.0.1:8787。", ts: at(180) },
       { role: "assistant", content: "已写好 deploy/Caddyfile 草案，等你 review。", ts: at(178) },
@@ -127,6 +135,22 @@ function seed(): void {
     lastActivity: at(178),
     streamCursor: 3,
     cursor: 2,
+  });
+
+  makeStore({
+    // 演示 §3.9：默认列表看不见它；打开「显示已隐藏」才会以弱化样式出现，可恢复。
+    id: "s-orphan",
+    title: "旧项目：atlas 抓取器",
+    role: "secondary",
+    cwd: "~/projects/atlas-old",
+    catalogState: "saved",
+    hasControl: false,
+    workspaceMissing: true,
+    hidden: true,
+    entries: [{ role: "user", content: "（这个项目的文件夹已经被删掉了。）", ts: at(2880) }],
+    lastActivity: at(2880),
+    streamCursor: 1,
+    cursor: 1,
   });
 }
 
@@ -157,6 +181,8 @@ function toSession(store: Store): Session {
     title: store.title,
     has_control: store.hasControl,
     last_activity: store.lastActivity,
+    workspace_missing: store.workspaceMissing,
+    hidden: store.hidden,
   };
 }
 
@@ -376,6 +402,9 @@ function hasStoredToken(): boolean {
 
 const isAuthed = (): boolean => sessionCookieAuthed || hasStoredToken();
 
+/** §3.9 的 include_hidden 查询参数：1 / true / yes 都算打开。 */
+const flag = (raw: string | null): boolean => raw === "1" || raw === "true" || raw === "yes";
+
 async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   const url = new URL(rawUrl, window.location.origin);
@@ -440,7 +469,9 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (path === "/api/sessions" && method === "GET") {
     seed();
-    return jsonResponse({ sessions: Array.from(STORE.values()).map(toSession) });
+    const includeHidden = flag(url.searchParams.get("include_hidden"));
+    const rows = Array.from(STORE.values()).filter((store) => includeHidden || !store.hidden);
+    return jsonResponse({ sessions: rows.map(toSession) });
   }
 
   const eventsMatch = /^\/api\/sessions\/([^/]+)\/events$/.exec(path);
@@ -449,7 +480,7 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     return sseResponse();
   }
 
-  const match = /^\/api\/sessions\/([^/]+)(?:\/(input|pause|resume))?$/.exec(path);
+  const match = /^\/api\/sessions\/([^/]+)(?:\/(input|pause|resume|hide))?$/.exec(path);
   if (!match) return errorResponse(404, "not_found", `（mock）未实现 ${method} ${path}`);
 
   seed();
@@ -457,6 +488,12 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   if (!store) return errorResponse(404, "session_not_found", "（mock）会话不存在。");
 
   if (match[2] === undefined && method === "GET") return jsonResponse(snapshotOf(store));
+
+  // §3.9：只动列表，会话本身原样留着；POST 隐藏、DELETE 恢复。
+  if (match[2] === "hide" && (method === "POST" || method === "DELETE")) {
+    store.hidden = method === "POST";
+    return jsonResponse({ ok: true, id: store.id, hidden: store.hidden });
+  }
 
   if (match[2] === "input" && method === "POST") {
     let text = "";

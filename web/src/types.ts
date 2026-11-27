@@ -12,6 +12,10 @@ export type Session = {
   run_id?: string | null;
   node_id?: string | null;
   last_activity?: string | null;
+  /** CONTRACT §3.9：会话的工作目录已不在磁盘上（用户删了项目，或换了机器）。 */
+  workspace_missing?: boolean;
+  /** CONTRACT §3.9：只从本服务的列表里隐藏；会话本身原样留在 MISAKA。 */
+  hidden?: boolean;
 };
 
 /** 上游会话条目，原样透传（content 形状未知，渲染层做防御式处理）。 */
@@ -69,6 +73,10 @@ export type RunSummary = {
   created_at: number;
   updated_at: number;
   last_error?: string | null;
+  /** CONTRACT §3.9：run 的工作目录已不在磁盘上。 */
+  workspace_missing?: boolean;
+  /** CONTRACT §3.9：只从本服务的列表里隐藏（DELETE …/hide 可恢复）。 */
+  hidden?: boolean;
 };
 
 export type NodeSummary = {

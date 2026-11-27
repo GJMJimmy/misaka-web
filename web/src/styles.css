@@ -2167,3 +2167,50 @@ a.btn {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+
+/* ==================================================================
+   M7 隐藏失效的 run / 会话（§3.9）
+   ================================================================== */
+
+/* 卡片外层：让右侧的 ⋯ 浮在卡片自己的留白里，不挤占标题。 */
+.card-row {
+  position: relative;
+}
+
+.card-row .card {
+  padding-right: 56px;
+}
+
+.card-row__more {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-muted);
+}
+
+@media (hover: hover) {
+  .card-row__more:hover:not(:disabled) {
+    color: var(--fg);
+    border-color: var(--border-strong);
+  }
+}
+
+/* 已隐藏：弱化（不是不可用），并给虚线边框一个「不在默认列表里」的信号。 */
+.card-row--hidden .card {
+  opacity: 0.62;
+  border-style: dashed;
+}
+
+.card-row--hidden .card-row__more {
+  opacity: 0.62;
+}
+
+.menu-row__meta {
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+

@@ -73,6 +73,10 @@ type MockRun = {
   dissolving: string[];
   /** CONTRACT §3.4：null/缺省 = 不是本桥接启动的。 */
   process?: MockProcess | null;
+  /** CONTRACT §3.9：工作目录已不在磁盘上。 */
+  workspace_missing?: boolean;
+  /** CONTRACT §3.9：只从本服务的列表里隐藏。 */
+  hidden?: boolean;
 };
 
 type ListMode = "normal" | "empty" | "board_unavailable";
@@ -88,6 +92,9 @@ let createRunIdNull = false;
 const PENDING: MockRun[] = [];
 
 const nowSec = (): number => Math.floor(Date.now() / 1000);
+
+/** §3.9 的 include_hidden 查询参数：1 / true / yes 都算打开。 */
+const flag = (raw: string | null): boolean => raw === "1" || raw === "true" || raw === "yes";
 
 /* ------------------------------------------------------------------ 文本素材 */
 
@@ -662,6 +669,8 @@ function buildRuns(): MockRun[] {
       driver_active: true,
       created_at: t - 7200,
       updated_at: t - 3600,
+      // 演示 §3.9：默认列表看不见它，打开「显示已隐藏」才会以弱化样式出现。
+      hidden: true,
       limits: { sister_parallel: 1, parallel: 2, max_followups: 3, max_revisions: 1 },
       nodes: [betaRoot, betaA, betaB],
       process: {
@@ -686,6 +695,8 @@ function buildRuns(): MockRun[] {
       driver_active: false,
       created_at: t - 205000,
       updated_at: t - 190000,
+      // 演示 §3.9：项目文件夹被删掉之后，卡片照样在列表里，但要能看出它已经失效。
+      workspace_missing: true,
       limits: { sister_parallel: 2, parallel: 2, max_followups: 2, max_revisions: 1 },
       nodes: [gammaRoot, gammaA],
       products: [
@@ -720,6 +731,8 @@ function toSummary(run: MockRun): RunSummary {
     created_at: run.created_at,
     updated_at: run.updated_at,
     last_error: run.last_error ?? null,
+    workspace_missing: run.workspace_missing === true,
+    hidden: run.hidden === true,
   };
 }
 
@@ -1204,7 +1217,30 @@ export async function handleResearch(
       const store = data();
       for (const item of PENDING.splice(0)) store.push(item);
     }
-    return jsonResponse({ runs: data().map(toSummary) });
+    const includeHidden = flag(search.get("include_hidden"));
+    const rows = includeHidden ? data() : data().filter((item) => item.hidden !== true);
+    return jsonResponse({ runs: rows.map(toSummary) });
+  }
+
+  // §3.9：隐藏 / 恢复 / 一键隐藏失效项。都是「只动本服务的列表」，run 本身原样留着。
+  if (path === "/api/runs/hide-stale" && method === "POST") {
+    const stale = data().filter((item) => item.workspace_missing === true && item.hidden !== true);
+    for (const item of stale) {
+      item.hidden = true;
+      pushAudit({ action: "run_hide", run_id: item.id, stale: true });
+    }
+    const hidden = data().filter((item) => item.hidden === true).length;
+    return jsonResponse({ ok: true, added: stale.length, hidden });
+  }
+
+  const hideMatch = /^\/api\/runs\/([^/]+)\/hide$/.exec(path);
+  if (hideMatch && (method === "POST" || method === "DELETE")) {
+    const runId = decodeURIComponent(hideMatch[1]);
+    const run = data().find((item) => item.id === runId);
+    if (!run) return errorResponse(404, "not_found", `运行不存在：${runId}`);
+    run.hidden = method === "POST";
+    pushAudit({ action: method === "POST" ? "run_hide" : "run_unhide", run_id: run.id });
+    return jsonResponse({ ok: true, id: run.id, hidden: run.hidden });
   }
 
   const sourcesMatch = /^\/api\/runs\/([^/]+)\/sources$/.exec(path);
