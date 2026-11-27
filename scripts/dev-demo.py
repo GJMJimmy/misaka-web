@@ -172,6 +172,11 @@ def main() -> int:
     # A realistic mix: MISAKA writes session entries ({type, message|summary|data}), not bare messages.
     owner.entries = [
         {"type": "model_change", "provider": "deepseek", "modelId": "deepseek-flash", "timestamp": "2026-11-26T10:00:00Z"},
+        # upstream does write marker entries with an empty text block; they must stay invisible
+        {"type": "message", "timestamp": "2026-11-26T10:00:01Z", "message": {
+            "role": "system", "timestamp": "2026-11-26T10:00:01Z",
+            "content": [{"type": "text", "text": ""}],
+        }},
         {"type": "message", "timestamp": "2026-11-26T10:00:05Z", "message": {
             "role": "user", "timestamp": "2026-11-26T10:00:05Z",
             "content": [{"type": "text", "text": "庚子年间的赈灾账册，能否说明地方财政的实际弹性？"}],

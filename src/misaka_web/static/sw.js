@@ -9,8 +9,8 @@
  * 想作废旧缓存：把 VERSION 改一下（activate 会清掉名字不匹配的 cache）。
  */
 /* The build stamps these two: the hashed asset list and a version derived from it. */
-const BUILD_ASSETS = ["./assets/index-DH1NGnBV.css","./assets/index-ypUUnEZr.js"];
-const VERSION = "86aebf0e";
+const BUILD_ASSETS = ["./assets/index-DH1NGnBV.css","./assets/index-Drp3xdPw.js"];
+const VERSION = "2a87b86a";
 const CACHE = "misaka-shell-" + VERSION;
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", ...BUILD_ASSETS];
 

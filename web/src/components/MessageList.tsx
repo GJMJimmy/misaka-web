@@ -109,7 +109,10 @@ function renderBlock(block: unknown, key: string, onCitation?: (span: CitationSp
   if (type === "toolCall" || type === "tool_call" || type === "toolUse") return renderToolCall(record, key);
   if (type === "image") return <p className="msg__text msg__text--muted" key={key}>[图片]</p>;
   const text = str(record.text);
-  if (text) return <MarkdownText text={text} key={key} onCitation={onCitation} />;
+  if (text.trim()) return <MarkdownText text={text} key={key} onCitation={onCitation} />;
+  // 一个空文本块什么也不携带（上游确实会写 {type:"text", text:""} 的占位系统条目）；
+  // 把它当"未知数据"摊开成 JSON，只会给手机上添一块噪音。
+  if (!type || type === "text") return null;
   // anything else is still data, not a blank line
   return (
     <details className="tool" key={key}>
@@ -121,10 +124,15 @@ function renderBlock(block: unknown, key: string, onCitation?: (span: CitationSp
 
 function renderMessageBody(message: Rec, onCitation?: (span: CitationSpan) => void): ReactNode {
   const blocks = blocksOf(message);
-  if (blocks.length === 0) {
+  const rendered = blocks
+    .map((block, index) => renderBlock(block, `b-${index}`, onCitation))
+    .filter((node) => node !== null && node !== undefined && node !== false);
+  if (rendered.length === 0) {
+    // 没有可见内容的系统条目是标记，不是消息：整条不渲染，而不是留一个空气泡
+    if (str(message.role) === "system") return null;
     return <p className="msg__text msg__text--muted">（空消息）</p>;
   }
-  return <div className="msg__blocks">{blocks.map((block, index) => renderBlock(block, `b-${index}`, onCitation))}</div>;
+  return <div className="msg__blocks">{rendered}</div>;
 }
 
 function roleLabel(message: Rec): string {
@@ -188,13 +196,15 @@ function renderEntryRow(entry: unknown, key: string): ReactNode {
 function renderEntry(entry: Entry, key: string, onCitation?: (span: CitationSpan) => void): ReactNode {
   const message = messageOf(entry);
   if (!message) return renderEntryRow(entry, key);
+  const body = renderMessageBody(message, onCitation);
+  if (body === null) return null;
   return (
     <article className={`msg msg--${roleClass(message)}`} key={key}>
       <header className="msg__head">
         <span className="msg__role">{roleLabel(message)}</span>
         {typeof message.timestamp === "string" ? <time className="msg__time">{formatClock(message.timestamp)}</time> : null}
       </header>
-      <div className="msg__body">{renderMessageBody(message, onCitation)}</div>
+      <div className="msg__body">{body}</div>
     </article>
   );
 }
