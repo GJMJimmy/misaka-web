@@ -230,6 +230,36 @@ type ProjectEntry = { name: string; path: string; has_project_md: boolean; is_gi
 5. 项目：列出工作区根下的目录（名字、git 徽标、PROJECT.md、sources、已有 run 数）+ `新建`（名字 + 是否 git init）；成功后显示路径与 actions，并提示可以到「研究」里起 run。
 6. 所有写操作：二次确认 → 提交 → **回读**；服务端 422 的 `message` 原样展示；失败不要乐观更新。
 7. mock 覆盖以上全部端点（含 422 与 `confirmation_required`）。
+
+### 3.8 聊天框里的斜杠命令（M6）
+
+TUI 在输入循环里解析 `/research` 之类；浏览器没有输入循环，所以**桥接层解析**这一小撮命令，答案用结构化文本回，**绝不转发给模型**。
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| GET | `/api/commands` | — | `{commands:["/help", "/research status [RUN_ID]", …]}`（用于补全提示） |
+| POST | `/api/command` | `{text}` | `{ok, command, title, lines:[string], navigate?, data?, unsupported?}`；不是命令 → 422 |
+
+```ts
+type CommandResult = {
+  ok: boolean;
+  command: string;          // "help" | "research status" | …
+  title: string;
+  lines: string[];          // 直接按行渲染，等宽字更合适
+  navigate?: string | null; // 形如 "#/run/r_x"，给了就显示「去这里」
+  unsupported?: boolean;    // 命令不在白名单：lines[0] 是等价路径提示
+};
+```
+
+**界面要求**
+
+1. 输入框里若文本以**单个** `/` 开头：调 `POST /api/command`，把结果作为**本地系统气泡**追加到会话视图（标注「命令」，不写入会话、不发给模型），可选带「去这里」按钮（`navigate`）。
+2. `//` 开头：按上游约定**原样发给模型**（不当命令）。
+3. 结果 `ok:false` 或 422：显示成错误样式的气泡，把服务端 message 原样写出；**不要回落到发送**。
+4. 当输入只有 `/` 或 `/`+前缀（还没有空格）时，从 `GET /api/commands` 弹建议列表；点选补全为「命令 + 空格」；Esc 关闭。
+5. mock 实现 `/api/commands` 与 `/api/command`（至少覆盖 status / stop / limits / unknown-unsupported / 422 不是命令）。
+
+白名单（服务端为准）：`/help`、`/research status|stop|resume|limits|tell`、`/sister ID`、`/model`、`/board`。其余命令回 `unsupported:true` + 等价路径提示（`/read`、`/mcp`、`/share`、`/export`、`/compact`、`/skill`、`/commit` …）。
 ## 4. 上游接缝（只读参考，供实现者对齐语义）
 
 - 控制协议：`misaka/core/session_control.py:1-5,29-46,186-214`（一命令一 ack；`snapshot` 支持 cursor 增量）

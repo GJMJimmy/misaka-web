@@ -78,12 +78,14 @@ def create_app() -> FastAPI:
         return JSONResponse({"error": body}, status_code=exc.status_code)
 
     from .routes_audit import router as audit_router
+    from .routes_command import router as command_router
     from .routes_runs import router as runs_router
     from .routes_settings import router as settings_router
 
     app.include_router(runs_router)
     app.include_router(audit_router)
     app.include_router(settings_router)
+    app.include_router(command_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
