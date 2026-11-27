@@ -206,7 +206,7 @@ type Source = {
 | POST | `/api/sisters` | `{id, specialty?, model?, thinking?}` | `{ok, id, message}` |
 | PATCH | `/api/sisters/{id}` | `{specialty?, model?, thinking?}` | `{ok, id, changed:[...]}`；`model:""` 表示取消钉死、回到全局默认 |
 | DELETE | `/api/sisters/{id}` | `{confirm:true}` | `{ok, id, message}`；缺 confirm → 422 `confirmation_required` |
-| GET | `/api/projects` | — | `{root, projects:[{name,path,has_project_md,is_git,has_sources,runs}]}` |
+| GET | `/api/projects` | — | `{root, default_project, projects:[{name,path,has_project_md,is_git,has_sources,runs,last_run_at}]}`；`default_project` 是最近用过的那一个（新建研究的默认选中项） |
 | POST | `/api/projects` | `{name, git?}` | `{ok, name, path, actions:[...]}`；重名/非空/非法名字 → 422 |
 
 ```ts

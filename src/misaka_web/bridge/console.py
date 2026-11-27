@@ -367,9 +367,13 @@ def projects() -> dict[str, Any]:
     root = Path(str(os.environ.get("MISAKA_WEB_WORKSPACE_ROOT") or (Path(os.path.expanduser("~")) / "Documents")))
     root = root.expanduser().resolve()
     by_workspace: dict[str, int] = {}
+    last_run: dict[str, float] = {}
     try:
-        for run in board.list_runs():
-            by_workspace[run["workspace"]] = by_workspace.get(run["workspace"], 0) + 1
+        for run in board.list_runs(include_hidden=True):
+            key = str(run.get("workspace") or "")
+            by_workspace[key] = by_workspace.get(key, 0) + 1
+            stamp = float(run.get("updated_at") or run.get("created_at") or 0)
+            last_run[key] = max(last_run.get(key, 0.0), stamp)
     except Exception:  # noqa: BLE001 - no board yet is fine here
         pass
     artifact_dirs = {"nodes", "final", "cards", "downloads", "sources", ".misaka", "shared"}
@@ -381,17 +385,27 @@ def projects() -> dict[str, Any]:
             looks_like_project = (
                 (child / "PROJECT.md").is_file() or (child / ".git").exists() or (child / "sources").is_dir()
             )
-            if not looks_like_project:
-                continue
+            # a plain folder is listed too: "run in the folder I already have" is a normal wish,
+            # and the research workflow initializes PROJECT.md in it on the first run
             entries.append({
                 "name": child.name,
+                "initialized": looks_like_project,
                 "path": str(child),
                 "has_project_md": (child / "PROJECT.md").is_file(),
                 "is_git": (child / ".git").exists(),
                 "has_sources": (child / "sources").is_dir(),
                 "runs": by_workspace.get(str(child), 0),
+                "last_run_at": last_run.get(str(child)),
             })
-    return {"root": str(root), "projects": entries}
+    # the form defaults to the project used most recently, so a returning user does not
+    # silently get a brand-new folder for every run
+    recent = sorted(
+        (entry for entry in entries if entry["last_run_at"]),
+        key=lambda entry: entry["last_run_at"],
+        reverse=True,
+    )
+    return {"root": str(root), "projects": entries,
+            "default_project": recent[0]["name"] if recent else None}
 
 
 def create_project(name: str, *, git: bool = True) -> dict[str, Any]:

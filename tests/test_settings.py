@@ -143,6 +143,32 @@ def test_project_creation_and_refusals(client, auth, tmp_path, monkeypatch):
     assert client.post("/api/projects", json={"name": ""}, headers=auth).status_code == 422
 
 
+def test_projects_suggest_the_one_used_most_recently(client, auth, tmp_path, monkeypatch):
+    """Leaving the workspace blank must not mean "a new folder every time" for a returning user."""
+    root = tmp_path / "root"
+    (root / "old").mkdir(parents=True)
+    (root / "fresh").mkdir()
+    for name in ("old", "fresh"):
+        (root / name / "PROJECT.md").write_text("# x\n", encoding="utf-8")
+    monkeypatch.setenv("MISAKA_WEB_WORKSPACE_ROOT", str(root))
+
+    from misaka_web.bridge import console
+
+    monkeypatch.setattr(console.board, "list_runs", lambda **kwargs: [
+        {"workspace": str(root / "old"), "updated_at": 100.0},
+        {"workspace": str(root / "fresh"), "updated_at": 900.0},
+    ])
+    body = client.get("/api/projects", headers=auth).json()
+    assert body["default_project"] == "fresh"
+    fresh = next(item for item in body["projects"] if item["name"] == "fresh")
+    assert fresh["runs"] == 1 and fresh["last_run_at"] == 900.0
+
+
+def test_no_project_is_suggested_before_any_run(client, auth, tmp_path, monkeypatch):
+    monkeypatch.setenv("MISAKA_WEB_WORKSPACE_ROOT", str(tmp_path))
+    assert client.get("/api/projects", headers=auth).json()["default_project"] is None
+
+
 def test_model_catalog_lists_providers_and_models(client, auth):
     body = client.get("/api/settings/model", headers=auth).json()
     ids = {item["id"] for item in body["providers"]}
