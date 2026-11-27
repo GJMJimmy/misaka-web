@@ -261,15 +261,7 @@ async def _stream(record: catalog.SessionRecord, request: Request) -> AsyncItera
             return
         cursor = delta.get("cursor", cursor)
         stream_cursor = delta.get("stream_cursor", stream_cursor)
-        payload: dict[str, Any] = {}
-        if delta.get("entries") is not None:
-            payload["entries"] = delta["entries"]
-        if delta.get("streaming") is not None:
-            payload["streaming"] = delta["streaming"]
-        new_state = delta.get("state")
-        if new_state != state:
-            payload["state"] = new_state
-            state = new_state
+        payload, state = _delta_frame(delta, state)
         if payload:
             payload["cursor"] = cursor
             payload["stream_cursor"] = stream_cursor
@@ -278,6 +270,25 @@ async def _stream(record: catalog.SessionRecord, request: Request) -> AsyncItera
         elif time.monotonic() - last_beat >= HEARTBEAT_SECONDS:
             last_beat = time.monotonic()
             yield ": ping\n\n"
+
+
+def _delta_frame(delta: dict[str, Any], state: Any) -> tuple[dict[str, Any], Any]:
+    """One SSE payload from an owner delta.
+
+    `streaming` is forwarded whenever the owner reports it — **including null**, which is how a
+    finished reply stops being shown as a growing partial. Dropping that null left the browser
+    frozen on a half message until the page was reopened (the snapshot then showed it whole).
+    """
+    payload: dict[str, Any] = {}
+    if delta.get("entries") is not None:
+        payload["entries"] = delta["entries"]
+    if "streaming" in delta:
+        payload["streaming"] = delta["streaming"]
+    new_state = delta.get("state")
+    if new_state != state:
+        payload["state"] = new_state
+        state = new_state
+    return payload, state
 
 
 def _environment() -> dict[str, Any]:

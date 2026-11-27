@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   cursorToParam,
@@ -50,6 +50,9 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
   const [commandBubbles, setCommandBubbles] = useState<CommandBubble[]>([]);
 
   const retry = useCallback(() => setReconnectNonce((n) => n + 1), []);
+  // 一轮结束时以属主为准重新对账：增量帧可能只带来「流式结束」，而最后那一版正文要靠快照
+  // 才拿得到。没有这一步，长回复会停在半句话上，直到用户退出重进（快照才刷新）。
+  const reconciling = useRef(false);
 
   const applySnapshot = useCallback((snapshot: Snapshot) => {
     setEntries(snapshot.entries ?? []);
@@ -63,6 +66,18 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
     if (snapshot.run_id) setOwner({ runId: snapshot.run_id, nodeId: snapshot.node_id ?? null });
   }, []);
 
+  const reconcile = useCallback(async () => {
+    if (reconciling.current) return;
+    reconciling.current = true;
+    try {
+      applySnapshot(await getSession(sessionId));
+    } catch {
+      /* 对账失败就保留已渲染内容，下一次增量还会触发 */
+    } finally {
+      reconciling.current = false;
+    }
+  }, [sessionId, applySnapshot]);
+
   // delta 只追加/原位更新，绝不重排已渲染条目。
   const applyDelta = useCallback((delta: Delta) => {
     if (Array.isArray(delta.entries) && delta.entries.length > 0) {
@@ -71,7 +86,10 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
     }
     if ("streaming" in delta) setStreaming(delta.streaming ?? null);
     if (delta.state) setRunState(delta.state);
-  }, []);
+    // 流式结束（或整轮转为 idle）时对齐一次属主状态：这是「看不到结尾」那个问题的收尾动作。
+    const finished = ("streaming" in delta && delta.streaming == null) || delta.state === "idle";
+    if (finished) void reconcile();
+  }, [reconcile]);
 
   /* 进入会话：先 GET 全量快照，再用 since=<stream_cursor> 订阅 SSE。
      reconnectNonce 变化 = 用户点了「重连」，是本组件唯一的重连触发源。 */
