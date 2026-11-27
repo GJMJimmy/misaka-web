@@ -2023,3 +2023,147 @@ a.btn {
   max-width: 100%;
   overflow-x: auto;
 }
+
+/* ---------- 斜杠命令的本地气泡（CONTRACT §3.8） ---------- */
+/* 命令结果不写会话，只在这一屏：整宽、系统条目底色，正文按行等宽渲染。 */
+.msg--command {
+  align-self: stretch;
+  background: var(--bg-inset);
+  border-color: var(--border);
+  min-width: 0;
+}
+
+.msg--command-error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-fg);
+}
+
+.msg--command .msg__head {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.msg__cmd-name {
+  min-width: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.msg__tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn-fg);
+  font-size: 11px;
+}
+
+.msg__local {
+  flex: none;
+  margin-left: auto;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.msg__cmd-title {
+  margin: 0 0 6px;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.msg__cmd-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.msg__cmd-line {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg--command-error .msg__cmd-line,
+.msg--command-error .msg__cmd-title {
+  color: var(--error-fg);
+}
+
+.msg__cmd-go {
+  margin-top: 10px;
+}
+
+/* ---------- 命令补全面板（贴在输入框上方） ---------- */
+.composer__suggest {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 232px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.composer__suggest-head {
+  margin: 0 0 4px;
+  padding: 0 6px;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.composer__suggest-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 6px 8px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.composer__suggest-item--active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.composer__suggest-cmd {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.composer__suggest-arg {
+  flex: none;
+  color: var(--fg-subtle);
+  font-size: 12px;
+}
+
+.composer__arg {
+  margin: 0;
+  color: var(--fg-subtle);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

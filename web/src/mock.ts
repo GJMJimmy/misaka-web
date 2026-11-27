@@ -1,3 +1,4 @@
+import { handleCommands } from "./mock-commands";
 import { delay, errorResponse, jsonResponse } from "./mock-http";
 import { handleResearch } from "./mock-research";
 import { handleSettings } from "./mock-settings";
@@ -9,10 +10,10 @@ import type { Delta, Entry, Session, SessionRunState, Snapshot } from "./types";
  * 目的：没有 Python 服务时也能 `vite build`、演示与回归 UI —— 演示路径与真实后端
  * 完全一致（同样的端点、同样的 SSE snapshot/delta/error 语义），所以 UI 只走一套代码。
  *
- * 演示指令（直接发到输入框）：
- *   /fail     -> 502 投递未确认（演示「显式报错、不自动重发」）
- *   /offline  -> 模拟 SSE 传输层断开（演示顶部 banner + 手动重连）
- *   /error    -> 服务端 `event: error`（演示会话失效后停止、不自动重连）
+ * 演示指令（直接发到输入框；单斜杠留给 §3.8 的桥接命令，所以这里用双斜杠）：
+ *   //fail     -> 502 投递未确认（演示「显式报错、不自动重发」）
+ *   //offline  -> 模拟 SSE 传输层断开（演示顶部 banner + 手动重连）
+ *   //error    -> 服务端 `event: error`（演示会话失效后停止、不自动重连）
  *   登录 token 输入 `reject` -> 401
  */
 
@@ -247,12 +248,14 @@ function startReply(store: Store, userText: string): void {
 }
 
 function acceptInput(store: Store, text: string): void {
-  if (text === "/fail") return;
-  if (text === "/offline" || text === "/error") {
+  // 输入框把单个 / 交给桥接层，所以演示指令改用双斜杠；这里去掉一个斜杠再匹配。
+  const directive = text.startsWith("//") ? text.slice(1) : text;
+  if (directive === "/fail") return;
+  if (directive === "/offline" || directive === "/error") {
     const note: Entry = {
       role: "system",
       content:
-        text === "/offline"
+        directive === "/offline"
           ? "（mock）已模拟 SSE 传输层断开：顶部出现断线 banner，点「重连」用 since=stream_cursor 续订。"
           : "（mock）已模拟服务端 event: error：客户端停止接收且不自动重连，点「重试」重新订阅。",
       ts: nowIso(),
@@ -263,7 +266,7 @@ function acceptInput(store: Store, text: string): void {
     window.setTimeout(() => {
       const subscribers = Array.from(SUBSCRIBERS.get(store.id) ?? []);
       for (const sub of subscribers) {
-        if (text === "/offline") {
+        if (directive === "/offline") {
           SUBSCRIBERS.get(store.id)?.delete(sub);
           sub.emitTransportError();
         } else {
@@ -411,6 +414,12 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 
   if (!isAuthed()) {
     return errorResponse(401, "unauthorized", "（mock）未认证，请用任意非空 token 登录。");
+  }
+
+  // M6 斜杠命令（§3.8）交给 mock-commands.ts
+  if (path === "/api/commands" || path === "/api/command") {
+    const handled = await handleCommands(path, method, bodyText);
+    if (handled) return handled;
   }
 
   // M1 研究面（/api/runs*）与 mock 演示开关（/api/__mock/*）交给 mock-research.ts

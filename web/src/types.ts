@@ -290,3 +290,29 @@ export type ProjectEntry = {
 export type ProjectList = { root: string; projects: ProjectEntry[] };
 
 export type ProjectCreated = { ok: boolean; name: string; path: string; actions: string[] };
+
+/* ------------------------------------------------------- M6 斜杠命令（§3.8） */
+
+/** POST /api/command 的结构化结果：桥接层解析，绝不转发给模型。 */
+export type CommandResult = {
+  ok: boolean;
+  /** "help" | "research status" | … */
+  command: string;
+  title: string;
+  lines: string[];
+  navigate?: string | null;
+  unsupported?: boolean;
+  /** 命令自带的附加数据（限额回读之类），界面不渲染，只留着排查用。 */
+  data?: Record<string, unknown>;
+};
+
+/** 命令结果的本地气泡：只活在当前会话视图里，不写会话、刷新即消失。 */
+export type CommandBubble = {
+  id: string;
+  tone: "ok" | "error";
+  command: string;
+  title: string;
+  lines: string[];
+  navigate: string | null;
+  unsupported: boolean;
+};

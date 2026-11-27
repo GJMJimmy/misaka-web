@@ -26,6 +26,7 @@ import type {
   Sister,
   SisterPatchResponse,
   SisterWriteResponse,
+  CommandResult,
 } from "./types";
 
 const TOKEN_KEY = "misaka.web.token";
@@ -193,6 +194,24 @@ export function cursorToParam(cursor: unknown): string | null {
 export function eventsUrl(id: string, since: string | null): string {
   const base = apiUrl(`/api/sessions/${encodeURIComponent(id)}/events`);
   return since === null ? base : `${base}?since=${encodeURIComponent(since)}`;
+}
+
+/* ------------------------------------------------------- M6 斜杠命令（§3.8） */
+
+/** GET /api/commands —— 补全建议由服务端白名单给出，前端不自己维护一份。 */
+export async function listCommands(): Promise<string[]> {
+  const body = await requestJson<{ commands?: unknown }>("/api/commands");
+  if (!Array.isArray(body?.commands)) return [];
+  return body.commands.filter((item): item is string => typeof item === "string");
+}
+
+/**
+ * POST /api/command —— 单个 / 开头的文本交给桥接层解析。
+ * 不是命令 → 422（抛 ApiError，message 原样展示）；白名单外 → 200 且 unsupported:true。
+ * 这条调用与 sendInput 完全无关：命令永远不进会话、不发模型。
+ */
+export async function runCommand(text: string): Promise<CommandResult> {
+  return requestJson<CommandResult>("/api/command", { method: "POST", body: jsonBody({ text }) });
 }
 
 /* ------------------------------------------------------------------ M1 研究面 */

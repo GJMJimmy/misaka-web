@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, type ReactNode } from "react";
 import Markdown from "../markdown";
 import { formatClock, isRecord, safeJson } from "../format";
-import type { Entry, SessionRunState } from "../types";
+import type { CommandBubble, Entry, SessionRunState } from "../types";
 
 import type { CitationSpan } from "../markdown-parse";
 
@@ -9,6 +9,8 @@ type Props = {
   entries: Entry[];
   streaming: Entry | null;
   runState: SessionRunState;
+  /** 命令结果 / 命令错误的本地气泡：不来自服务端快照，刷新即消失（CONTRACT §3.8）。 */
+  local?: CommandBubble[];
   /** 会话属于某个 run 时，正文里的引用可点，交给来源面板。 */
   onCitation?: (span: CitationSpan) => void;
 };
@@ -197,9 +199,50 @@ function renderEntry(entry: Entry, key: string, onCitation?: (span: CitationSpan
   );
 }
 
-export default function MessageList({ entries, streaming, runState, onCitation }: Props) {
+/** 本地命令气泡：按行渲染 lines，等宽字；有 navigate 才给「去这里」。 */
+function renderCommandBubble(bubble: CommandBubble): ReactNode {
+  const go = bubble.navigate;
+  return (
+    <article
+      className={`msg msg--command${bubble.tone === "error" ? " msg--command-error" : ""}`}
+      key={bubble.id}
+    >
+      <header className="msg__head">
+        <span className="msg__role">命令</span>
+        {bubble.command ? <span className="msg__cmd-name">/{bubble.command}</span> : null}
+        {bubble.unsupported ? <span className="msg__tag">白名单外</span> : null}
+        <span className="msg__local">仅本机 · 不发模型</span>
+      </header>
+      <div className="msg__body">
+        <p className="msg__cmd-title">{bubble.title}</p>
+        <div className="msg__cmd-lines">
+          {bubble.lines.map((line, index) => (
+            <p className="msg__cmd-line" key={index}>
+              {line === "" ? "\u00a0" : line}
+            </p>
+          ))}
+        </div>
+        {go ? (
+          <button
+            type="button"
+            className="btn btn--chip msg__cmd-go"
+            onClick={() => {
+              window.location.hash = go;
+            }}
+          >
+            去这里
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+export default function MessageList({ entries, streaming, runState, local, onCitation }: Props) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const pinnedRef = useRef(true);
+
+  const bubbles = local ?? [];
 
   const handleScroll = () => {
     const el = scrollerRef.current;
@@ -212,9 +255,9 @@ export default function MessageList({ entries, streaming, runState, onCitation }
   useEffect(() => {
     const el = scrollerRef.current;
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
-  }, [entries, streaming]);
+  }, [entries, streaming, bubbles]);
 
-  const isEmpty = entries.length === 0 && streaming === null;
+  const isEmpty = entries.length === 0 && streaming === null && bubbles.length === 0;
   const streamingMessage = messageOf(streaming);
 
   return (
@@ -235,6 +278,8 @@ export default function MessageList({ entries, streaming, runState, onCitation }
           </div>
         </article>
       ) : null}
+
+      {bubbles.map(renderCommandBubble)}
 
       {runState === "working" && streamingMessage === null ? (
         <p className="working" role="status">

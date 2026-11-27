@@ -4,12 +4,14 @@ import {
   cursorToParam,
   describeError,
   getSession,
+  runCommand,
   sendInput,
   setPaused as requestPauseToggle,
 } from "../api";
+import { bubbleOf, errorBubble } from "../command";
 import { mergeEntries } from "../merge";
 import { openSessionStream, type SessionStream } from "../stream";
-import type { Delta, Entry, Session, SessionRunState, Snapshot } from "../types";
+import type { CommandBubble, Delta, Entry, Session, SessionRunState, Snapshot } from "../types";
 import Banner, { type BannerProps } from "./Banner";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
@@ -44,6 +46,8 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
   const [owner, setOwner] = useState<{ runId: string; nodeId: string | null } | null>(null);
   const [sources, setSources] = useState<SourceRequest | null>(null);
   const [reconnectNonce, setReconnectNonce] = useState(0);
+  // 斜杠命令的结果只活在这里：快照/delta 都不会带上它，刷新即消失（CONTRACT §3.8）。
+  const [commandBubbles, setCommandBubbles] = useState<CommandBubble[]>([]);
 
   const retry = useCallback(() => setReconnectNonce((n) => n + 1), []);
 
@@ -174,6 +178,19 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
     }
   };
 
+  /* 单个 / 开头：走桥接层解析（POST /api/command），结果/错误都进本地气泡。
+     这条路径不调用 sendInput——命令不进会话、不发模型，失败也不回落到发送。 */
+  const handleCommand = async (text: string) => {
+    try {
+      const result = await runCommand(text);
+      setCommandBubbles((prev) => [...prev, bubbleOf(text, result)]);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) onAuthLost();
+      // 422 / 其他失败：服务端 message 原样写成错误气泡，绝不回落到发送。
+      setCommandBubbles((prev) => [...prev, errorBubble(text, describeError(err))]);
+    }
+  };
+
   const canControl = !readOnly && (session?.has_control ?? true);
 
   return (
@@ -224,6 +241,7 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
         entries={entries}
         streaming={streaming}
         runState={runState}
+        local={commandBubbles}
         onCitation={
           owner ? (span) => setSources({ citation: span }) : undefined
         }
@@ -240,6 +258,7 @@ export default function SessionView({ sessionId, session, onBack, onAuthLost }: 
 
       <Composer
         onSend={handleSend}
+        onCommand={handleCommand}
         disabled={!canControl}
         disabledHint={readOnly ? "这个会话已经结束，只能查看历史" : "本会话无控制权，只能只读"}
         hint={paused ? "会话已暂停：恢复后才会处理新输入。" : undefined}
