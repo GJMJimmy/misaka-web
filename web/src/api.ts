@@ -26,8 +26,6 @@ import type {
   Sister,
   SisterPatchResponse,
   SisterWriteResponse,
-  TerminalProfile,
-  TerminalTicket,
 } from "./types";
 
 const TOKEN_KEY = "misaka.web.token";
@@ -540,26 +538,4 @@ export async function listProjects(): Promise<ProjectList> {
 /** POST /api/projects */
 export async function createProject(body: { name: string; git?: boolean }): Promise<ProjectCreated> {
   return requestJson<ProjectCreated>("/api/projects", { method: "POST", body: jsonBody(body) });
-}
-
-/* ------------------------------------------------------- M7 终端（§3.8） */
-
-/**
- * POST /api/terminal/ticket —— 一次性票据（30 秒），WebSocket 只认它，不认 long-lived token。
- * scene 只出现在 VITE_MOCK=1 的演示路径里：让本地 mock 后端给出指定的错误码。
- */
-export async function createTerminalTicket(body: {
-  profile: TerminalProfile;
-  cwd?: string;
-  arg?: string;
-  scene?: string;
-}): Promise<TerminalTicket> {
-  const payload: Record<string, unknown> = { profile: body.profile };
-  if (body.cwd) payload.cwd = body.cwd;
-  if (body.arg) payload.arg = body.arg;
-  if (body.scene) payload.scene = body.scene;
-  return requestJson<TerminalTicket>("/api/terminal/ticket", {
-    method: "POST",
-    body: jsonBody(payload),
-  });
 }

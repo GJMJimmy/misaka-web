@@ -2,7 +2,6 @@ type Props = {
   onClose: () => void;
   onOpenSettings: () => void;
   onOpenAudit: () => void;
-  onOpenTerminal: () => void;
   onLogout: () => void;
   notificationSupported: boolean;
   permission: NotificationPermission | "unsupported";
@@ -16,7 +15,6 @@ export default function MenuSheet({
   onClose,
   onOpenSettings,
   onOpenAudit,
-  onOpenTerminal,
   onLogout,
   notificationSupported,
   permission,
@@ -48,11 +46,6 @@ export default function MenuSheet({
           <button type="button" className="menu-row" onClick={onOpenSettings}>
             <span className="menu-row__label">设置（配置台）</span>
             <span className="menu-row__meta">模型与密钥 / Sisters / 项目</span>
-          </button>
-
-          <button type="button" className="menu-row" onClick={onOpenTerminal}>
-            <span className="menu-row__label">终端</span>
-            <span className="menu-row__meta">不用 SSH 就能跑 MISAKA 命令：服务端真 PTY + xterm</span>
           </button>
 
           <button type="button" className="menu-row" onClick={onOpenAudit}>

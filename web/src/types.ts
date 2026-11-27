@@ -290,31 +290,3 @@ export type ProjectEntry = {
 export type ProjectList = { root: string; projects: ProjectEntry[] };
 
 export type ProjectCreated = { ok: boolean; name: string; path: string; actions: string[] };
-/* ------------------------------------------------------- M7 终端（§3.8） */
-
-export type TerminalProfile = "shell" | "misaka" | "panel" | "attach";
-
-/** POST /api/terminal/ticket 的响应。mode 只在 Windows 退化成管道模式时出现。 */
-export type TerminalTicket = {
-  ticket: string;
-  ws_url: string;
-  expires_in: number;
-  profile: TerminalProfile;
-  cwd: string;
-  cols: number;
-  rows: number;
-  mode?: "pty" | "pipe";
-};
-
-/** 客户端 → 服务端（JSON 文本帧）。 */
-export type TerminalFrameIn =
-  | { type: "input"; data: string }
-  | { type: "resize"; cols: number; rows: number }
-  | { type: "ping" };
-
-/** 服务端 → 客户端（JSON 文本帧）。output 原样喂给 xterm.write()。 */
-export type TerminalFrameOut =
-  | { type: "output"; data: string }
-  | { type: "exit"; code: number | null; signal?: string | null }
-  | { type: "error"; code: string; message: string }
-  | { type: "pong" };

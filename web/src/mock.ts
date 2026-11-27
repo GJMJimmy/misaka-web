@@ -1,7 +1,6 @@
 import { delay, errorResponse, jsonResponse } from "./mock-http";
 import { handleResearch } from "./mock-research";
 import { handleSettings } from "./mock-settings";
-import { handleTerminal, installMockWebSocket } from "./mock-terminal";
 import type { Delta, Entry, Session, SessionRunState, Snapshot } from "./types";
 
 /**
@@ -426,12 +425,6 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     if (handled) return handled;
   }
 
-  // M7 终端（§3.8）：票据端点；WebSocket 已在 installMockBackend 里换成本地假帧
-  if (path === "/api/terminal/ticket") {
-    const handled = await handleTerminal(path, method, bodyText);
-    if (handled) return handled;
-  }
-
   if (path === "/api/me" && method === "GET") {
     return jsonResponse({ authenticated: true, version: "mock" });
   }
@@ -500,7 +493,6 @@ export function installMockBackend(): void {
   const target = window as unknown as { fetch: typeof fetch; EventSource: unknown };
   target.fetch = mockFetch as unknown as typeof fetch;
   target.EventSource = MockEventSource;
-  installMockWebSocket();
   // eslint-disable-next-line no-console
   console.info(
     "[misaka-web] VITE_MOCK=1：已启用本地 mock 后端（fetch + EventSource），无需 Python 服务。",
