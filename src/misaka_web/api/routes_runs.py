@@ -54,9 +54,9 @@ def _board_error(error: Exception) -> None:
 
 
 @router.get("")
-async def list_runs() -> dict[str, Any]:
+async def list_runs(include_hidden: bool = False) -> dict[str, Any]:
     try:
-        return {"runs": board.list_runs()}
+        return {"runs": board.list_runs(include_hidden=include_hidden)}
     except Exception as error:  # noqa: BLE001 - mapped to a typed HTTP error below
         _board_error(error)
         raise
@@ -116,6 +116,42 @@ async def create_run(body: CreateRunBody) -> dict[str, Any]:
         audit.record("workspace_create", workspace=result.get("workspace"))
     audit.record("run_start", run_id=result.get("run_id"), pid=result.get("pid"), workspace=result.get("workspace"),
                  question=(body.question or "")[:200])
+    return result
+
+
+@router.post("/hide-stale")
+async def hide_stale() -> dict[str, Any]:
+    """Hide every run whose project folder is gone — one tap instead of a row at a time."""
+    from ..bridge import hidden
+
+    try:
+        stale = [run["id"] for run in board.list_runs() if run.get("workspace_missing")]
+    except Exception as error:  # noqa: BLE001
+        _board_error(error)
+        raise
+    result = hidden.hide_many("runs", stale)
+    audit.record("run_hide", reason="workspace_missing", count=result.get("added"))
+    return result
+
+
+@router.post("/{run_id}/hide")
+async def hide_run(run_id: str) -> dict[str, Any]:
+    from ..bridge import hidden
+
+    try:
+        result = hidden.hide("runs", run_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail={"code": "invalid_request", "message": str(error)}) from error
+    audit.record("run_hide", run=run_id)
+    return result
+
+
+@router.delete("/{run_id}/hide")
+async def unhide_run(run_id: str) -> dict[str, Any]:
+    from ..bridge import hidden
+
+    result = hidden.unhide("runs", run_id)
+    audit.record("run_unhide", run=run_id)
     return result
 
 

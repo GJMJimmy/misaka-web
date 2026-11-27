@@ -119,18 +119,43 @@ def create_app() -> FastAPI:
         return {"authenticated": True, "version": __version__}
 
     @app.get("/api/sessions", dependencies=[Depends(auth.require_auth)])
-    async def sessions() -> dict[str, Any]:
-        from ..bridge import runs as board
+    async def sessions(include_hidden: bool = False) -> dict[str, Any]:
+        from ..bridge import hidden, runs as board
 
         owners = board.session_run_map()
+        skipped = set() if include_hidden else hidden.ids("sessions")
         items = []
         for record in catalog.load_records():
+            is_hidden = record.id in skipped
+            if is_hidden and not include_hidden:
+                continue
             item = record.as_api()
             owner = owners.get(record.id)
             item["run_id"] = (owner or {}).get("run_id")
             item["node_id"] = (owner or {}).get("node_id")
+            # the conversation survives its folder; saying so beats a broken link
+            item["workspace_missing"] = board.workspace_missing(record.cwd)
+            item["hidden"] = is_hidden
             items.append(item)
         return {"sessions": items}
+
+    @app.post("/api/sessions/{session_id}/hide", dependencies=[Depends(auth.require_auth)])
+    async def hide_session(session_id: str) -> dict[str, Any]:
+        from .. import audit
+        from ..bridge import hidden
+
+        result = hidden.hide("sessions", session_id)
+        audit.record("session_hide", session=session_id)
+        return result
+
+    @app.api_route("/api/sessions/{session_id}/hide", methods=["DELETE"], dependencies=[Depends(auth.require_auth)])
+    async def unhide_session(session_id: str) -> dict[str, Any]:
+        from .. import audit
+        from ..bridge import hidden
+
+        result = hidden.unhide("sessions", session_id)
+        audit.record("session_unhide", session=session_id)
+        return result
 
     @app.get("/api/sessions/{session_id}", dependencies=[Depends(auth.require_auth)])
     async def session_snapshot(session_id: str) -> dict[str, Any]:

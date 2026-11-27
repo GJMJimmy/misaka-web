@@ -167,12 +167,21 @@ def run_for_session(session_id: str) -> dict[str, Any] | None:
     return session_run_map().get(session_id)
 
 
-def list_runs() -> list[dict[str, Any]]:
+def workspace_missing(workspace: str | None) -> bool:
+    return not workspace or not os.path.isdir(str(workspace))
+
+
+def list_runs(*, include_hidden: bool = False) -> list[dict[str, Any]]:
+    from . import hidden
+
     modules = _research()
     runs = modules["runs"]
+    skipped = set() if include_hidden else hidden.ids("runs")
     with connect() as con:
         out = []
         for run in runs.listing(con):
+            if run["id"] in skipped:
+                continue
             nodes = runs.nodes(con, run["id"])
             out.append({
                 "id": run["id"],
@@ -187,6 +196,10 @@ def list_runs() -> list[dict[str, Any]]:
                 "created_at": run.get("created_at"),
                 "updated_at": run.get("updated_at"),
                 "last_error": run.get("last_error"),
+                # the project files may be gone (a deleted folder, a moved machine): the row
+                # stays honest instead of 404-ing only when someone opens it
+                "workspace_missing": workspace_missing(run.get("workspace")),
+                "hidden": run["id"] in hidden.ids("runs") if include_hidden else False,
             })
         return out
 
@@ -217,6 +230,7 @@ def run_detail(run_id: str) -> dict[str, Any]:
             "nodes": nodes,
             "products": products,
             "process": _process(run_id),
+            "workspace_missing": workspace_missing(run.get("workspace")),
             "dissolving": [node["id"] for node in views.dissolving_nodes(con, run)],
         }
 

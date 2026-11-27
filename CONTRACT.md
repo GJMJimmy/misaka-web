@@ -260,6 +260,29 @@ type CommandResult = {
 5. mock 实现 `/api/commands` 与 `/api/command`（至少覆盖 status / stop / limits / unknown-unsupported / 422 不是命令）。
 
 白名单（服务端为准）：`/help`、`/research status|stop|resume|limits|tell`、`/sister ID`、`/model`、`/board`。其余命令回 `unsupported:true` + 等价路径提示（`/read`、`/mcp`、`/share`、`/export`、`/compact`、`/skill`、`/commit` …）。
+
+### 3.9 隐藏失效的 run / 会话（M7）
+
+上游**没有**删除 run 或会话的 API，而本服务从不写看板与会话文件。所以「删除」在 web 端等于「从本服务列表里隐藏」：记在 `<token 目录>/hidden.json`（可逆），对象本身原样留在 MISAKA 里。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/runs?include_hidden=true` | 列表；每项含 `workspace_missing`、`hidden` |
+| POST | `/api/runs/{id}/hide` | 隐藏一条（仍可 `GET /api/runs/{id}` 打开） |
+| DELETE | `/api/runs/{id}/hide` | 取消隐藏 |
+| POST | `/api/runs/hide-stale` | 把所有 `workspace_missing` 的 run 一次隐藏，返回 `{added, hidden}` |
+| GET | `/api/sessions?include_hidden=true` | 列表；每项含 `workspace_missing`、`hidden` |
+| POST | `/api/sessions/{id}/hide` | 隐藏一条会话 |
+| DELETE | `/api/sessions/{id}/hide` | 取消隐藏 |
+
+均记审计（`run_hide` / `run_unhide` / `session_hide` / `session_unhide`）。`workspace_missing` 表示该 run/会话的工作目录已不在磁盘上（用户删了项目，或换了机器）。
+
+**界面要求**
+
+1. 研究卡片：`workspace_missing` 时显示「项目文件已删除」徽标，并在卡片菜单里给「从列表隐藏」。
+2. 研究列表顶栏：有失效项时给「隐藏所有失效项」（二次确认，写明 N 条、可恢复）。
+3. 会话列表：同样显示徽标 + 单条隐藏。
+4. 两处都要有「显示已隐藏」（切 `include_hidden=1`），隐藏项以弱化样式呈现，可「恢复显示」。
 ## 4. 上游接缝（只读参考，供实现者对齐语义）
 
 - 控制协议：`misaka/core/session_control.py:1-5,29-46,186-214`（一命令一 ack；`snapshot` 支持 cursor 增量）
