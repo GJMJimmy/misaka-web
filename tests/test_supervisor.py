@@ -57,6 +57,36 @@ def test_resume_spawns_against_the_same_run(workspace_root):
         supervisor.terminate(first["run_id"])
 
 
+def test_an_unnamed_workspace_gets_its_own_project_folder(workspace_root):
+    """The bug the phone found: an empty workspace ran in the root and made the root a project."""
+    result = supervisor.start(workspace="", question="庚子赈灾账册与地方财政弹性", limits={})
+    try:
+        assert result["workspace_created"] is True
+        folder = pathlib.Path(result["workspace"])
+        assert folder.parent == workspace_root.resolve(), folder
+        assert folder != workspace_root.resolve()
+        assert "庚子赈灾" in folder.name and folder.name[:4].isdigit(), folder.name
+    finally:
+        supervisor.terminate(result["run_id"])
+
+
+def test_a_named_workspace_is_used_as_given(workspace_root):
+    project = workspace_root / "kept"
+    project.mkdir()
+    result = supervisor.start(workspace=str(project), question="命名的工作区", limits={})
+    try:
+        assert result["workspace_created"] is False
+        assert pathlib.Path(result["workspace"]) == project.resolve()
+    finally:
+        supervisor.terminate(result["run_id"])
+
+
+def test_the_slug_keeps_cjk_and_folds_punctuation():
+    assert supervisor._slug("庚子赈灾账册，能否说明弹性？") == "庚子赈灾账册-能否说明弹性"
+    assert supervisor._slug("") == "research"
+    assert len(supervisor._slug("x" * 100)) == 40
+
+
 def test_a_workspace_outside_the_root_is_refused(workspace_root, tmp_path):
     outside = tmp_path / "elsewhere"
     outside.mkdir()

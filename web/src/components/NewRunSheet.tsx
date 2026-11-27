@@ -112,7 +112,7 @@ export default function NewRunSheet({ onCancel, onStarted, onAuthLost }: Props) 
 
           <label className="field">
             <span className="field__label">
-              工作区 <span className="field__hint">可选；留空用服务端默认，不存在的目录会自动创建</span>
+              工作区 <span className="field__hint">可选；留空会在工作区根下按问题自动建一个新的项目目录（不存在的路径也会自动创建）</span>
             </span>
             <input
               className="field__input"

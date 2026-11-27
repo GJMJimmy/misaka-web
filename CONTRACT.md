@@ -142,7 +142,7 @@ type NodeDetail = NodeSummary & {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/api/runs` | `{question, workspace?, limits?, diagnostics?}` | `{pid, run_id \| null, workspace, log, argv, workspace_created}`；**工作区不存在时会在白名单内自动创建**（`workspace_created:true`，并记一条 `workspace_create` 审计）；`run_id` 是子进程写进看板后被发现的值，最长等 25s |
+| POST | `/api/runs` | `{question, workspace?, limits?, diagnostics?}` | `{pid, run_id \| null, workspace, log, argv, workspace_created}`；**不填工作区时，会在白名单根下按问题自动建一个属于这次 run 的项目目录**（形如 `20261127-0930-庚子赈灾账册-能否说明弹性`，`workspace_created:true`）；填了但目录不存在时同样在白名单内自动创建；两种情况都记 `workspace_create` 审计；`run_id` 是子进程写进看板后被发现的值，最长等 25s |
 | POST | `/api/runs/{id}/resume` | — | `{run_id, pid, kind:"resume", log, alive:true}` |
 | GET | `/api/runs/{id}/log?lines=200` | — | `{path, text}`；非本桥接启动的 run → 404 |
 | POST | `/api/runs/{id}/stop` | `{force?: bool}` | 看板请求停止；`force:true` 且由本桥接托管时再终止进程，返回 `{…, terminated:{ok,pid}}` |

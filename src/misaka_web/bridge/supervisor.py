@@ -75,6 +75,40 @@ def check_workspace(value: str | None, *, create: bool = False) -> tuple[str, bo
     return str(resolved), True
 
 
+def _slug(question: str, *, limit: int = 40) -> str:
+    """A folder name from the question: keep letters, digits and CJK, fold the rest to one dash."""
+    kept = []
+    for char in str(question or "").strip():
+        if char.isalnum() or "\u4e00" <= char <= "\u9fff":
+            kept.append(char)
+        elif kept and kept[-1] != "-":
+            kept.append("-")
+    slug = "".join(kept).strip("-")[:limit].strip("-")
+    return slug or "research"
+
+
+def resolve_workspace(question: str, requested: str | None) -> tuple[str, bool]:
+    """Where a new run works.
+
+    A named workspace is used as given. With none named, the run gets a project folder of its
+    own under the workspace root, because the workflow initializes a project in its cwd: running
+    straight in the root would turn the root itself into a project (PROJECT.md, cards/, .misaka)
+    and mix every run's artifacts in one place.
+    """
+    if requested and str(requested).strip():
+        return check_workspace(requested, create=True)
+    root = Path(workspace_root())
+    root.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M", time.localtime())
+    folder = root / f"{stamp}-{_slug(question)}"
+    suffix = 1
+    while folder.exists():
+        suffix += 1
+        folder = root / f"{stamp}-{_slug(question)}-{suffix}"
+    folder.mkdir(parents=False)
+    return str(folder), True
+
+
 def research_command() -> list[str]:
     """How to invoke the workflow: the installed CLI, or an override for tests."""
     override = os.environ.get("MISAKA_WEB_RESEARCH_CMD")
@@ -234,7 +268,7 @@ def start(*, workspace: str, question: str, limits: dict[str, Any] | None = None
     text = (question or "").strip()
     if len(text) < 2:
         raise SupervisorError("A research question is required.")
-    folder, created = check_workspace(workspace, create=True)
+    folder, created = resolve_workspace(text, workspace)
     argv = [*research_command(), text, *_limit_args(limits)]
     if diagnostics:
         argv.append("--diagnostics")
