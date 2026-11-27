@@ -404,8 +404,14 @@ def projects() -> dict[str, Any]:
         key=lambda entry: entry["last_run_at"],
         reverse=True,
     )
-    return {"root": str(root), "projects": entries,
-            "default_project": recent[0]["name"] if recent else None}
+    if recent:
+        suggestion = recent[0]["name"]
+    elif len(entries) == 1:
+        # one project and no history yet: that folder is obviously where research belongs
+        suggestion = entries[0]["name"]
+    else:
+        suggestion = None
+    return {"root": str(root), "projects": entries, "default_project": suggestion}
 
 
 def create_project(name: str, *, git: bool = True) -> dict[str, Any]:

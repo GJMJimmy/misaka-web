@@ -164,6 +164,14 @@ def test_projects_suggest_the_one_used_most_recently(client, auth, tmp_path, mon
     assert fresh["runs"] == 1 and fresh["last_run_at"] == 900.0
 
 
+def test_a_single_project_is_suggested_even_before_any_run(client, auth, tmp_path, monkeypatch):
+    root = tmp_path / "root"
+    (root / "only").mkdir(parents=True)
+    (root / "only" / "PROJECT.md").write_text("# x\n", encoding="utf-8")
+    monkeypatch.setenv("MISAKA_WEB_WORKSPACE_ROOT", str(root))
+    assert client.get("/api/projects", headers=auth).json()["default_project"] == "only"
+
+
 def test_no_project_is_suggested_before_any_run(client, auth, tmp_path, monkeypatch):
     monkeypatch.setenv("MISAKA_WEB_WORKSPACE_ROOT", str(tmp_path))
     assert client.get("/api/projects", headers=auth).json()["default_project"] is None
